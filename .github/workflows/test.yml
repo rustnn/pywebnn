@@ -63,16 +63,35 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Install dependencies
+      - name: Build and install (Unix)
+        if: runner.os != 'Windows'
+        run: make dev
+
+      - name: Build and install (Windows)
+        if: runner.os == 'Windows'
         run: |
+          python -m venv .venv
+          .venv\Scripts\Activate.ps1
           pip install --upgrade pip
           pip install maturin pytest pytest-asyncio numpy onnxruntime
+          maturin develop
 
-      - name: Build with maturin
-        run: maturin develop
+      - name: Run tests (Unix)
+        if: runner.os != 'Windows'
+        run: make test
 
-      - name: Run tests
-        run: pytest tests/ -v
+      - name: Run tests (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          .venv\Scripts\Activate.ps1
+          pytest tests/ -v
 
-      - name: Test import
-        run: python -c "import webnn; print('Import successful')"
+      - name: Test import (Unix)
+        if: runner.os != 'Windows'
+        run: . .venv/bin/activate && python -c "import webnn; print('Import successful')"
+
+      - name: Test import (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          .venv\Scripts\Activate.ps1
+          python -c "import webnn; print('Import successful')"
