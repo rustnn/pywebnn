@@ -1,0 +1,35 @@
+[package]
+name = "pywebnn"
+version = "0.5.11"
+edition = "2021"
+description = "Python bindings for W3C WebNN specification via rustnn"
+license = "Apache-2.0"
+repository = "https://github.com/rustnn/pywebnn"
+keywords = ["webnn", "python", "machine-learning", "neural-networks", "ai"]
+categories = ["api-bindings", "science"]
+
+[lib]
+crate-type = ["cdylib"]
+name = "pywebnn"
+
+[features]
+default = ["onnx-runtime", "coreml-runtime"]
+onnx-runtime = ["rustnn/onnx-runtime", "ort", "ndarray"]
+coreml-runtime = ["rustnn/coreml-runtime", "objc"]
+trtx-runtime = ["rustnn/trtx-runtime"]
+trtx-runtime-mock = ["rustnn/trtx-runtime-mock"]
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module"] }
+rustnn = { git = "https://github.com/rustnn/rustnn" }
+serde_json = "1.0"
+webnn-graph = { git = "https://github.com/rustnn/webnn-graph", branch = "main" }
+half = "2.4"
+regex = "1.11"
+# Optional runtime dependencies
+ndarray = { version = "0.16", optional = true }
+ort = { version = "2.0.0-rc.11", optional = true, features = ["ndarray", "half", "load-dynamic"] }
+objc = { version = "0.2", optional = true }
+
+# Make this crate independent from the parent workspace
+[workspace]

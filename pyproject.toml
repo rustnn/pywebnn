@@ -1,0 +1,48 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "pywebnn"
+version = "0.5.11"
+description = "Python bindings for W3C WebNN specification"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Tarek Ziade", email = "tarek@ziade.org" }]
+keywords = ["webnn", "neural-network", "machine-learning", "onnx", "coreml", "ai", "graph", "inference"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "numpy>=1.20.0",
+    "onnxruntime>=1.23.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0",
+    "pytest-asyncio",
+]
+
+[project.urls]
+Homepage = "https://github.com/rustnn/pywebnn"
+Documentation = "https://github.com/rustnn/pywebnn#readme"
+Repository = "https://github.com/rustnn/pywebnn"
+Issues = "https://github.com/rustnn/pywebnn/issues"
+
+[tool.maturin]
+module-name = "webnn._rustnn"
+python-source = "python"
+# Enable ONNX Runtime and CoreML by default (CoreML only works on macOS)
+features = ["pyo3/extension-module", "onnx-runtime", "coreml-runtime"]
