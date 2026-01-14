@@ -26,6 +26,25 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install protobuf compiler (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+          protoc --version
+
+      - name: Install protobuf compiler (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install protobuf
+          protoc --version
+
+      - name: Install protobuf compiler (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install protoc -y
+          protoc --version
+
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
