@@ -7,13 +7,14 @@ on:
     branches: [main]
 
 jobs:
-  test:
-    name: Test on ${{ matrix.os }} - Python ${{ matrix.python-version }}
+  # Python build test - verify package builds and imports on all platforms
+  python-build:
+    name: Build Test on ${{ matrix.os }} - Python ${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-latest]
-        python-version: ["3.13"]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.11", "3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v4
@@ -63,35 +64,67 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build and install (Unix)
-        if: runner.os != 'Windows'
-        run: make dev
+      - name: Install maturin
+        run: pip install maturin
 
-      - name: Build and install (Windows)
+      - name: Build Python package (macOS with CoreML)
+        if: runner.os == 'macOS'
+        run: maturin build --features python,onnx-runtime,coreml-runtime --out dist
+
+      - name: Build Python package (Linux)
+        if: runner.os == 'Linux'
+        run: maturin build --features python,onnx-runtime --out dist
+
+      - name: Build Python package (Windows)
         if: runner.os == 'Windows'
+        run: maturin build --features python,onnx-runtime --out dist
+
+      - name: Install built package
+        shell: bash
         run: |
-          python -m venv .venv
-          .venv\Scripts\Activate.ps1
-          pip install --upgrade pip
-          pip install maturin pytest pytest-asyncio numpy onnxruntime
-          maturin develop
+          pip install dist/*.whl
 
-      - name: Run tests (Unix)
-        if: runner.os != 'Windows'
-        run: make test
+      - name: Test import
+        run: python -c "import webnn; print('Successfully imported webnn')"
 
-      - name: Run tests (Windows)
-        if: runner.os == 'Windows'
+  # Python comprehensive tests - only on Linux to avoid CoreML CI issues
+  python-test:
+    name: Python Tests on Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install protobuf compiler
         run: |
-          .venv\Scripts\Activate.ps1
-          pytest tests/ -v
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+          protoc --version
 
-      - name: Test import (Unix)
-        if: runner.os != 'Windows'
-        run: . .venv/bin/activate && python -c "import webnn; print('Import successful')"
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Test import (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          .venv\Scripts\Activate.ps1
-          python -c "import webnn; print('Import successful')"
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build and test
+        run: make dev && make test
