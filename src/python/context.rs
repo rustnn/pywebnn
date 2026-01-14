@@ -3,19 +3,20 @@
 //! PyO3 macros generate unsafe code that triggers unsafe_op_in_unsafe_fn warnings.
 //! This is expected behavior from the macro-generated code.
 #![allow(unsafe_op_in_unsafe_fn)]
+#![allow(clippy::useless_conversion)]
 
 use super::graph::PyMLGraph;
 use super::graph_builder::PyMLGraphBuilder;
 use super::operand::parse_data_type;
 use super::tensor::PyMLTensor;
+use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use rustnn::converters::GraphConverter;
 use rustnn::debug_print;
 use rustnn::graph::OperandDescriptor;
-use pyo3::prelude::*;
-use pyo3::types::PyDict;
 
 #[cfg(feature = "onnx-runtime")]
-use rustnn::executors::onnx::{OnnxInput, run_onnx_with_inputs};
+use rustnn::executors::onnx::{run_onnx_with_inputs, OnnxInput};
 
 #[cfg(all(target_os = "macos", feature = "coreml-runtime"))]
 use rustnn::executors::coreml::run_coreml_zeroed_cached_with_weights;
@@ -129,9 +130,9 @@ impl PyMLContext {
             Backend::CoreML => self.compute_coreml(py, graph, inputs),
             Backend::TensorRT => self.compute_trtx(py, graph, inputs),
             Backend::None => {
-                return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                Err(pyo3::exceptions::PyRuntimeError::new_err(
                     "No backend available: build without onnx-runtime/coreml-runtime/trtx-runtime features",
-                ));
+                ))
             }
         }
     }
@@ -315,7 +316,7 @@ impl PyMLContext {
     ///     output_path: Path to save the CoreML model
     #[cfg(target_os = "macos")]
     fn convert_to_coreml(&self, graph: &PyMLGraph, output_path: &str) -> PyResult<()> {
-        let converter = rustnn::converters::CoremlMlProgramConverter::default();
+        let converter = rustnn::converters::CoremlMlProgramConverter;
         let converted = converter.convert(&graph.graph_info).map_err(|e| {
             pyo3::exceptions::PyRuntimeError::new_err(format!("CoreML conversion failed: {}", e))
         })?;
@@ -344,7 +345,7 @@ impl PyMLContext {
         device: &str,
     ) -> PyResult<Py<PyDict>> {
         // Convert to CoreML
-        let converter = rustnn::converters::CoremlMlProgramConverter::default();
+        let converter = rustnn::converters::CoremlMlProgramConverter;
         let converted = converter.convert(&graph.graph_info).map_err(|e| {
             pyo3::exceptions::PyRuntimeError::new_err(format!("CoreML conversion failed: {}", e))
         })?;
@@ -1134,7 +1135,7 @@ impl PyMLContext {
 
             // Skip empty KV cache inputs (past_sequence_length=0)
             // These will be removed by the converter, so don't expect them in inputs dict
-            let has_empty_dimension = input_op.descriptor.shape.iter().any(|&dim| dim == 0);
+            let has_empty_dimension = input_op.descriptor.shape.contains(&0);
             let is_kv_input = input_name.starts_with("past_key_values_");
             if has_empty_dimension && is_kv_input {
                 debug_print!(
@@ -1270,10 +1271,10 @@ impl PyMLContext {
         graph: &PyMLGraph,
         inputs: &Bound<'_, PyDict>,
     ) -> PyResult<Py<PyDict>> {
-        use rustnn::executors::coreml::{CoremlInput, run_coreml_with_inputs_with_weights};
+        use rustnn::executors::coreml::{run_coreml_with_inputs_with_weights, CoremlInput};
 
         // Convert graph to CoreML
-        let converter = rustnn::converters::CoremlMlProgramConverter::default();
+        let converter = rustnn::converters::CoremlMlProgramConverter;
         let converted = converter.convert(&graph.graph_info).map_err(|e| {
             pyo3::exceptions::PyRuntimeError::new_err(format!("CoreML conversion failed: {}", e))
         })?;
@@ -1299,7 +1300,7 @@ impl PyMLContext {
 
             // Skip empty KV cache inputs (past_sequence_length=0)
             // These will be removed by the converter, so don't expect them in inputs dict
-            let has_empty_dimension = input_op.descriptor.shape.iter().any(|&dim| dim == 0);
+            let has_empty_dimension = input_op.descriptor.shape.contains(&0);
             let is_kv_input = input_name.starts_with("past_key_values_");
             if has_empty_dimension && is_kv_input {
                 debug_print!(
@@ -1398,8 +1399,7 @@ impl PyMLContext {
                 }
             }
 
-            let shape_tuple =
-                pyo3::types::PyTuple::new_bound(py, original_shape.iter().map(|&d| d as i64));
+            let shape_tuple = pyo3::types::PyTuple::new_bound(py, original_shape.iter().copied());
             let array = numpy.call_method1("array", (output.data,))?;
             let reshaped = array.call_method1("reshape", (shape_tuple,))?;
             result.set_item(output.name, reshaped)?;
@@ -1429,7 +1429,7 @@ impl PyMLContext {
         graph: &PyMLGraph,
         inputs: &Bound<'_, PyDict>,
     ) -> PyResult<Py<PyDict>> {
-        use rustnn::executors::trtx::{TrtxInput, run_trtx_with_inputs};
+        use rustnn::executors::trtx::{run_trtx_with_inputs, TrtxInput};
 
         // Convert graph to ONNX (TensorRT uses ONNX as input format)
         let converter = rustnn::converters::OnnxConverter;
@@ -1524,7 +1524,6 @@ impl PyMLContext {
     }
 
     /// Fallback computation removed: we now error when no backend is available.
-
     /// Select the appropriate backend based on accelerated preference and power hint
     ///
     /// Returns: (Backend, accelerated_available)
@@ -1601,7 +1600,7 @@ impl PyMLContext {
                     not(any(feature = "trtx-runtime", feature = "trtx-runtime-mock"))
                 ))]
                 {
-                    return (Backend::OnnxGpu, true);
+                    (Backend::OnnxGpu, true)
                 }
 
                 // Fallback to CoreML on macOS if ONNX not available
@@ -1636,7 +1635,7 @@ impl PyMLContext {
                     not(any(feature = "trtx-runtime", feature = "trtx-runtime-mock"))
                 ))]
                 {
-                    return (Backend::OnnxGpu, true);
+                    (Backend::OnnxGpu, true)
                 }
                 #[cfg(all(
                     not(feature = "onnx-runtime"),

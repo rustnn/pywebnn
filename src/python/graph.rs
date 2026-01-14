@@ -3,11 +3,12 @@
 //! PyO3 macros generate unsafe code that triggers unsafe_op_in_unsafe_fn warnings.
 //! This is expected behavior from the macro-generated code.
 #![allow(unsafe_op_in_unsafe_fn)]
+#![allow(clippy::useless_conversion)]
 
-use rustnn::graph::GraphInfo;
-use rustnn::webnn_json;
 use pyo3::exceptions::PyIOError;
 use pyo3::prelude::*;
+use rustnn::graph::GraphInfo;
+use rustnn::webnn_json;
 use std::fs;
 use std::path::Path;
 

@@ -4,8 +4,8 @@
 //! This is expected behavior from the macro-generated code.
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use rustnn::graph::{DataType, OperandDescriptor, OperandKind};
 use pyo3::prelude::*;
+use rustnn::graph::{DataType, OperandDescriptor, OperandKind};
 
 /// Represents an operand in the computational graph
 #[pyclass(name = "MLOperand")]

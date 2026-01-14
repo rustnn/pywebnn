@@ -7,7 +7,9 @@ use pyo3::prelude::*;
 
 mod python;
 
-use python::{PyML, PyMLContext, PyMLGraph, PyMLGraphBuilder, PyMLOperand, PyMLTensor, PyMLDeviceTensor};
+use python::{
+    PyML, PyMLContext, PyMLDeviceTensor, PyMLGraph, PyMLGraphBuilder, PyMLOperand, PyMLTensor,
+};
 
 /// WebNN Python module
 #[pymodule]

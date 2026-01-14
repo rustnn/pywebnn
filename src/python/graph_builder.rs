@@ -3,16 +3,18 @@
 //! PyO3 macros generate unsafe code that triggers unsafe_op_in_unsafe_fn warnings.
 //! This is expected behavior from the macro-generated code.
 #![allow(unsafe_op_in_unsafe_fn)]
+#![allow(clippy::useless_conversion)]
+#![allow(clippy::too_many_arguments)]
 
 use super::graph::PyMLGraph;
-use super::operand::{PyMLOperand, parse_data_type};
+use super::operand::{parse_data_type, PyMLOperand};
+use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use rustnn::graph::{
     ConstantData, DataType, GraphInfo, Operand, OperandDescriptor, OperandKind, Operation,
 };
 use rustnn::shape_inference::{broadcast_shapes, infer_matmul_shape, validate_reshape};
 use rustnn::validator::GraphValidator;
-use pyo3::prelude::*;
-use pyo3::types::PyDict;
 use std::collections::HashMap;
 
 /// Builder for constructing WebNN computational graphs
@@ -323,7 +325,7 @@ impl PyMLGraphBuilder {
         bias: Option<&PyMLOperand>,
     ) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::{
-            Conv2dFilterLayout, Conv2dInputLayout, Conv2dOptions, infer_conv2d_shape,
+            infer_conv2d_shape, Conv2dFilterLayout, Conv2dInputLayout, Conv2dOptions,
         };
 
         // Default values matching WebNN spec
@@ -443,8 +445,8 @@ impl PyMLGraphBuilder {
         bias: Option<&PyMLOperand>,
     ) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::{
-            Conv2dFilterLayout, Conv2dInputLayout, ConvTranspose2dOptions,
-            infer_conv_transpose2d_shape,
+            infer_conv_transpose2d_shape, Conv2dFilterLayout, Conv2dInputLayout,
+            ConvTranspose2dOptions,
         };
 
         // Default values matching WebNN spec
@@ -581,7 +583,7 @@ impl PyMLGraphBuilder {
         pads: Option<Vec<u32>>,
         layout: Option<&str>,
     ) -> PyResult<PyMLOperand> {
-        use rustnn::shape_inference::{Conv2dInputLayout, Pool2dOptions, infer_pool2d_shape};
+        use rustnn::shape_inference::{infer_pool2d_shape, Conv2dInputLayout, Pool2dOptions};
 
         // Default values matching WebNN spec
         let window_dimensions = window_dimensions.unwrap_or_else(|| vec![1, 1]);
@@ -678,7 +680,7 @@ impl PyMLGraphBuilder {
         pads: Option<Vec<u32>>,
         layout: Option<&str>,
     ) -> PyResult<PyMLOperand> {
-        use rustnn::shape_inference::{Conv2dInputLayout, Pool2dOptions, infer_pool2d_shape};
+        use rustnn::shape_inference::{infer_pool2d_shape, Conv2dInputLayout, Pool2dOptions};
 
         // Default values matching WebNN spec
         let window_dimensions = window_dimensions.unwrap_or_else(|| vec![1, 1]);
@@ -768,7 +770,7 @@ impl PyMLGraphBuilder {
         layout: Option<&str>,
     ) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::{
-            Conv2dInputLayout, GlobalPoolOptions, infer_global_pool_shape,
+            infer_global_pool_shape, Conv2dInputLayout, GlobalPoolOptions,
         };
 
         // Parse layout string
@@ -845,7 +847,7 @@ impl PyMLGraphBuilder {
         layout: Option<&str>,
     ) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::{
-            Conv2dInputLayout, GlobalPoolOptions, infer_global_pool_shape,
+            infer_global_pool_shape, Conv2dInputLayout, GlobalPoolOptions,
         };
 
         // Parse layout string
@@ -2309,7 +2311,7 @@ impl PyMLGraphBuilder {
         splits: &Bound<'_, PyAny>,
         axis: u32,
     ) -> PyResult<Vec<PyMLOperand>> {
-        use rustnn::shape_inference::{SplitSpec, infer_split_shapes};
+        use rustnn::shape_inference::{infer_split_shapes, SplitSpec};
 
         // Determine split specification
         let split_spec = if let Ok(count) = splits.extract::<u32>() {
@@ -3241,7 +3243,7 @@ impl PyMLGraphBuilder {
     ///
     /// Returns:
     ///     MLOperand: Output operand
-    #[pyo3(signature = (input, alpha=0.16666666666666666, beta=0.5))]
+    #[pyo3(signature = (input, alpha=0.166_666_67, beta=0.5))]
     fn hard_swish(&mut self, input: &PyMLOperand, alpha: f32, beta: f32) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_hardswish_shape;
 
@@ -3723,7 +3725,7 @@ impl PyMLGraphBuilder {
         axes: Option<Vec<u32>>,
         keep_dimensions: bool,
     ) -> PyResult<PyMLOperand> {
-        use rustnn::shape_inference::{ReduceOptions, infer_reduce_shape};
+        use rustnn::shape_inference::{infer_reduce_shape, ReduceOptions};
 
         // Create reduction options
         let options = ReduceOptions {

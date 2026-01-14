@@ -3,9 +3,10 @@
 //! PyO3 macros generate unsafe code that triggers unsafe_op_in_unsafe_fn warnings.
 //! This is expected behavior from the macro-generated code.
 #![allow(unsafe_op_in_unsafe_fn)]
+#![allow(clippy::useless_conversion)]
 
-use rustnn::graph::{DataType, OperandDescriptor};
 use pyo3::prelude::*;
+use rustnn::graph::{DataType, OperandDescriptor};
 use std::sync::{Arc, Mutex};
 
 /// MLTensorDescriptor - Describes tensor properties and usage flags
