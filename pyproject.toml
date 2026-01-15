@@ -7,7 +7,7 @@ name = "pywebnn"
 version = "0.5.11"
 description = "Python bindings for W3C WebNN specification"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Tarek Ziade", email = "tarek@ziade.org" }]
 keywords = ["webnn", "neural-network", "machine-learning", "onnx", "coreml", "ai", "graph", "inference"]
@@ -18,6 +18,7 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
