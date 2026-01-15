@@ -1,7 +1,7 @@
 .PHONY: help setup build test clean dev install lint fmt check all
 
-# Python version to use
-PYTHON ?= python3.12
+# Python version to use (defaults to python3 in PATH)
+PYTHON ?= python3
 VENV_DIR = .venv
 VENV_ACTIVATE = $(VENV_DIR)/bin/activate
 
@@ -30,7 +30,11 @@ setup:
 
 dev: setup
 	@echo "Building and installing pywebnn in development mode..."
-	. $(VENV_ACTIVATE) && maturin develop
+	@if [ "$$(uname)" = "Darwin" ]; then \
+		. $(VENV_ACTIVATE) && maturin develop --features onnx-runtime,coreml-runtime; \
+	else \
+		. $(VENV_ACTIVATE) && maturin develop --features onnx-runtime; \
+	fi
 	@echo "Development installation complete"
 
 build:
