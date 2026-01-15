@@ -69,15 +69,15 @@ jobs:
 
       - name: Build Python package (macOS with CoreML)
         if: runner.os == 'macOS'
-        run: maturin build --features python,onnx-runtime,coreml-runtime --out dist
+        run: maturin build --features onnx-runtime,coreml-runtime --out dist
 
       - name: Build Python package (Linux)
         if: runner.os == 'Linux'
-        run: maturin build --features python,onnx-runtime --out dist
+        run: maturin build --features onnx-runtime --out dist
 
       - name: Build Python package (Windows)
         if: runner.os == 'Windows'
-        run: maturin build --features python,onnx-runtime --out dist
+        run: maturin build --features onnx-runtime --out dist
 
       - name: Install built package
         shell: bash

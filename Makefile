@@ -30,7 +30,11 @@ setup:
 
 dev: setup
 	@echo "Building and installing pywebnn in development mode..."
-	. $(VENV_ACTIVATE) && maturin develop
+	@if [ "$$(uname)" = "Darwin" ]; then \
+		. $(VENV_ACTIVATE) && maturin develop --features onnx-runtime,coreml-runtime; \
+	else \
+		. $(VENV_ACTIVATE) && maturin develop --features onnx-runtime; \
+	fi
 	@echo "Development installation complete"
 
 build:
