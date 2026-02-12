@@ -303,7 +303,7 @@ impl PyMLGraph {
                     let entry = PyDict::new_bound(py);
                     entry.set_item("id", *input_id)?;
                     entry.set_item("name", input_name)?;
-                    entry.set_item("shape", input_op.descriptor.shape.clone())?;
+                    entry.set_item("shape", input_op.descriptor.static_or_max_shape())?;
                     input_descs.push(entry.into_py(py));
                 }
                 let entry = PyDict::new_bound(py);

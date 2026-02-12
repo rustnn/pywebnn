@@ -40,7 +40,7 @@ impl PyMLOperand {
     /// Get the operand's shape
     #[getter]
     fn shape(&self) -> Vec<u32> {
-        self.descriptor.shape.clone()
+        self.descriptor.static_or_max_shape()
     }
 
     /// Get the operand's name (if any)
