@@ -23,7 +23,7 @@ trtx-runtime-mock = ["rustnn/trtx-runtime-mock"]
 pyo3 = { version = "0.22", features = ["extension-module"] }
 rustnn = { git = "https://github.com/rustnn/rustnn", branch = "tarek-flexible-input" }
 serde_json = "1.0"
-webnn-graph = { git = "https://github.com/rustnn/webnn-graph", branch = "tarek-flexible-input" }
+webnn-graph = { git = "https://github.com/rustnn/webnn-graph", branch = "main" }
 half = "2.4"
 regex = "1.11"
 # Optional runtime dependencies
