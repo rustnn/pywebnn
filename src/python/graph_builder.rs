@@ -259,8 +259,8 @@ impl PyMLGraphBuilder {
         let mut attributes = serde_json::json!({
             "alpha": alpha,
             "beta": beta,
-            "a_transpose": a_transpose,
-            "b_transpose": b_transpose,
+            "aTranspose": a_transpose,
+            "bTranspose": b_transpose,
         });
 
         let mut input_operands = vec![a.id, b.id];
@@ -268,9 +268,9 @@ impl PyMLGraphBuilder {
         // Add optional bias operand
         if let Some(c_operand) = c {
             input_operands.push(c_operand.id);
-            attributes["has_bias"] = serde_json::json!(true);
+            attributes["hasBias"] = serde_json::json!(true);
         } else {
-            attributes["has_bias"] = serde_json::json!(false);
+            attributes["hasBias"] = serde_json::json!(false);
         }
 
         let operation = Operation {
@@ -951,8 +951,8 @@ impl PyMLGraphBuilder {
         let attributes = serde_json::json!({
             "epsilon": epsilon,
             "axis": axis,
-            "has_scale": scale.is_some(),
-            "has_bias": bias.is_some(),
+            "hasScale": scale.is_some(),
+            "hasBias": bias.is_some(),
         });
 
         let operation = Operation {
@@ -1017,8 +1017,8 @@ impl PyMLGraphBuilder {
         let attributes = serde_json::json!({
             "epsilon": epsilon,
             "layout": layout.unwrap_or("nchw"),
-            "has_scale": scale.is_some(),
-            "has_bias": bias.is_some(),
+            "hasScale": scale.is_some(),
+            "hasBias": bias.is_some(),
         });
 
         let operation = Operation {
@@ -1086,8 +1086,8 @@ impl PyMLGraphBuilder {
         let attributes = serde_json::json!({
             "epsilon": epsilon,
             "axes": norm_axes,
-            "has_scale": scale.is_some(),
-            "has_bias": bias.is_some(),
+            "hasScale": scale.is_some(),
+            "hasBias": bias.is_some(),
         });
 
         let operation = Operation {
@@ -3435,8 +3435,8 @@ impl PyMLGraphBuilder {
         self.next_operand_id += 1;
 
         let attributes = serde_json::json!({
-            "min_value": min_value,
-            "max_value": max_value,
+            "minValue": min_value,
+            "maxValue": max_value,
         });
 
         let operation = Operation {
