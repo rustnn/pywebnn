@@ -14,7 +14,9 @@ Then it runs an autoregressive decode loop with dynamic KV-cache growth.
 from __future__ import annotations
 
 import argparse
+import difflib
 import re
+import sys
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import urlretrieve
@@ -465,6 +467,23 @@ def main() -> None:
         print("-" * 70)
         print("Transformers text:")
         print(hf_text)
+        texts_match = generated_text == hf_text
+        print("-" * 70)
+        print(f"Exact text match: {'YES' if texts_match else 'NO'}")
+        if not texts_match:
+            print("[ERROR] WebNN and transformers generated different text output")
+            print("-" * 70)
+            print("Unified diff (webnn vs transformers):")
+            diff = difflib.unified_diff(
+                generated_text.splitlines(),
+                hf_text.splitlines(),
+                fromfile="webnn",
+                tofile="transformers",
+                lineterm="",
+            )
+            for line in diff:
+                print(line)
+            sys.exit(1)
         print("=" * 70)
 
 

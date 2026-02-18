@@ -13,11 +13,12 @@ crate-type = ["cdylib"]
 name = "pywebnn"
 
 [features]
-default = ["onnx-runtime", "coreml-runtime"]
+default = ["onnx-runtime", "coreml-runtime", "dynamic-inputs"]
 onnx-runtime = ["rustnn/onnx-runtime", "ort", "ndarray"]
 coreml-runtime = ["rustnn/coreml-runtime", "objc"]
 trtx-runtime = ["rustnn/trtx-runtime"]
 trtx-runtime-mock = ["rustnn/trtx-runtime-mock"]
+dynamic-inputs = ["rustnn/dynamic-inputs"]
 
 [dependencies]
 pyo3 = { version = "0.22", features = ["extension-module"] }
