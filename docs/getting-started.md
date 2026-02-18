@@ -68,7 +68,7 @@ This creates a `.venv` virtual environment with everything configured.
    maturin develop --features python
    ```
 
-**Note:** When building with `onnx-runtime` feature, you need ONNX Runtime libraries available. The Makefile handles this automatically. For manual setup, see the [development guide](../development/setup.md).
+**Note:** When building with `onnx-runtime` feature, you need ONNX Runtime libraries available. The Makefile handles this automatically. For manual setup details, see the [repository README](https://github.com/rustnn/pywebnn#development).
 
 ## Your First Graph
 

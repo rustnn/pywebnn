@@ -1,0 +1,20 @@
+site_name: pywebnn
+site_description: Python bindings for the W3C WebNN API
+site_url: https://rustnn.github.io/pywebnn/
+repo_url: https://github.com/rustnn/pywebnn
+repo_name: rustnn/pywebnn
+
+theme:
+  name: mkdocs
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - API Reference: api-reference.md
+  - Examples: examples.md
+  - Advanced Topics: advanced.md
