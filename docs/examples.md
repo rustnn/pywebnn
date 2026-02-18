@@ -12,7 +12,7 @@ import numpy as np
 
 # Create context and builder
 ml = webnn.ML()
-context = ml.create_context(accelerated=False)
+context = ml.create_context(device_type="cpu")
 builder = context.create_graph_builder()
 
 # Define computation: z = x + y
@@ -45,7 +45,7 @@ import webnn
 import numpy as np
 
 ml = webnn.ML()
-context = ml.create_context(accelerated=False)
+context = ml.create_context(device_type="cpu")
 builder = context.create_graph_builder()
 
 # Apply ReLU to input
@@ -88,7 +88,7 @@ def create_linear_layer(builder, input_op, in_features, out_features):
 
 # Build and execute
 ml = webnn.ML()
-context = ml.create_context(accelerated=False)
+context = ml.create_context(device_type="cpu")
 builder = context.create_graph_builder()
 
 # Input: batch_size=1, features=4 (simplified example)
@@ -117,7 +117,7 @@ import webnn
 import numpy as np
 
 ml = webnn.ML()
-context = ml.create_context(accelerated=False)
+context = ml.create_context(device_type="cpu")
 builder = context.create_graph_builder()
 
 # Simplified example: 4 -> 8 -> 4 -> 2
@@ -459,12 +459,12 @@ The `examples/` directory contains complete, production-ready examples demonstra
 
 ### Image Classification
 
-**[mobilenetv2_complete.py](https://github.com/tarekziade/rustnn/blob/main/examples/mobilenetv2_complete.py)** - Complete 106-layer pretrained MobileNetV2
+**[mobilenetv2_complete.py](https://github.com/rustnn/pywebnn/blob/main/examples/mobilenetv2_complete.py)** - Complete 106-layer pretrained MobileNetV2
 - Uses all 106 pretrained weight tensors from WebNN test-data
 - Achieves 99.60% accuracy on real ImageNet classification
 - Supports CPU, GPU, and CoreML (Neural Engine) backends
 - Full implementation of inverted residual blocks and depthwise convolutions
-- Run with: `make mobilenet-demo`
+- Run with: `make mobilenet-demo-hub`
 
 ```bash
 # Run on different backends
@@ -473,39 +473,36 @@ python examples/mobilenetv2_complete.py examples/images/test.jpg --backend gpu
 python examples/mobilenetv2_complete.py examples/images/test.jpg --backend coreml  # macOS only
 ```
 
-**[mobilenetv2_real.py](https://github.com/tarekziade/rustnn/blob/main/examples/mobilenetv2_real.py)** - Alternative MobileNetV2 implementation
+**[mobilenetv2_real.py](https://github.com/rustnn/pywebnn/blob/main/examples/mobilenetv2_real.py)** - Alternative MobileNetV2 implementation
 - Similar architecture with different weight loading approach
 
-**[image_classification.py](https://github.com/tarekziade/rustnn/blob/main/examples/image_classification.py)** - Simplified image classification
+**[image_classification.py](https://github.com/rustnn/pywebnn/blob/main/examples/image_classification.py)** - Simplified image classification
 - Demonstrates the classification pipeline with random weights
 - Good starting point for understanding the architecture
 
 ### Text Generation with Transformers
 
-**[text_generation_gpt.py](https://github.com/tarekziade/rustnn/blob/main/examples/text_generation_gpt.py)** - Next-token generation with attention
+**[text_generation_gpt.py](https://github.com/rustnn/pywebnn/blob/main/examples/text_generation_gpt.py)** - Next-token generation with attention
 - Simplified transformer architecture with self-attention
 - Autoregressive generation (one token at a time)
 - Positional embeddings and temperature sampling
 - Supports CPU, GPU, and CoreML backends
-- Run with: `make text-gen-demo`
 
 ```bash
 python examples/text_generation_gpt.py --prompt "Hello world" --tokens 30 --backend cpu
 ```
 
-**[text_generation_enhanced.py](https://github.com/tarekziade/rustnn/blob/main/examples/text_generation_enhanced.py)** - Enhanced version with KV cache
+**[text_generation_enhanced.py](https://github.com/rustnn/pywebnn/blob/main/examples/text_generation_enhanced.py)** - Enhanced version with KV cache
 - Key-value caching for efficient generation
 - HuggingFace tokenizer support
 - Better performance for longer sequences
-- Run with: `make text-gen-enhanced`
 
 ### Model Training
 
-**[train_text_model.py](https://github.com/tarekziade/rustnn/blob/main/examples/train_text_model.py)** - Train a text generation model
+**[train_text_model.py](https://github.com/rustnn/pywebnn/blob/main/examples/train_text_model.py)** - Train a text generation model
 - Simple gradient descent training loop
 - Trains on sample text data
 - Saves trained weights to JSON
-- Run with: `make text-gen-train`
 
 ```bash
 # Train on custom data
@@ -523,18 +520,18 @@ python examples/text_generation_gpt.py \
     --tokens 50
 ```
 
-**[train_simple_demo.py](https://github.com/tarekziade/rustnn/blob/main/examples/train_simple_demo.py)** - Simplified training demonstration
+**[train_simple_demo.py](https://github.com/rustnn/pywebnn/blob/main/examples/train_simple_demo.py)** - Simplified training demonstration
 - Minimal example showing the training workflow
 - Good starting point for understanding training
 
 ### Basic Examples
 
-**[python_simple.py](https://github.com/tarekziade/rustnn/blob/main/examples/python_simple.py)** - Simple graph building
+**[python_simple.py](https://github.com/rustnn/pywebnn/blob/main/examples/python_simple.py)** - Simple graph building
 - Basic operations: add, relu
 - Graph compilation and export
 - Good first example
 
-**[python_matmul.py](https://github.com/tarekziade/rustnn/blob/main/examples/python_matmul.py)** - Matrix multiplication
+**[python_matmul.py](https://github.com/rustnn/pywebnn/blob/main/examples/python_matmul.py)** - Matrix multiplication
 - Demonstrates matmul operation
 - Shows shape inference and broadcasting
 
@@ -542,16 +539,13 @@ python examples/text_generation_gpt.py \
 
 ## Running the Examples
 
-All examples can be run using make targets or directly with Python:
+Examples can be run via current Make targets or directly with Python:
 
 ```bash
-# Using make (recommended)
-make python-example           # Run all basic examples
-make mobilenet-demo           # MobileNetV2 on all 3 backends
-make text-gen-demo            # Text generation with attention
-make text-gen-train           # Train text model
-make text-gen-trained         # Generate with trained weights
-make text-gen-enhanced        # Enhanced version with KV cache
+# Using make
+make minilm-demo-hub          # MiniLM embeddings (Hub model)
+make mobilenet-demo-hub       # MobileNetV2 classification (Hub model)
+make run-all-demos            # Full demo verification suite
 
 # Or run directly
 python examples/python_simple.py

@@ -71,7 +71,7 @@ import webnn
 import numpy as np
 
 ml = webnn.ML()
-context = ml.create_context(accelerated=False)
+context = ml.create_context(device_type="cpu")
 builder = context.create_graph_builder()
 
 # Build a simple matmul with NumPy weights
@@ -152,7 +152,7 @@ import webnn
 import numpy as np
 
 ml = webnn.ML()
-context = ml.create_context(accelerated=False)
+context = ml.create_context(device_type="cpu")
 builder = context.create_graph_builder()
 
 # Build a complex graph
@@ -445,7 +445,7 @@ import platform
 ml = webnn.ML()
 
 # Try GPU/NPU acceleration first
-context = ml.create_context(accelerated=True, power_preference="high-performance")
+context = ml.create_context(device_type="gpu", power_preference="high-performance")
 print(f"Platform: {platform.system()}")
 print(f"Accelerated: {context.accelerated}")
 

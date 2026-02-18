@@ -51,21 +51,21 @@ This creates a `.venv` virtual environment with everything configured.
 
 2. **Clone and setup**:
    ```bash
-   git clone https://github.com/tarekziade/rustnn.git
-   cd rustnn
+   git clone https://github.com/rustnn/pywebnn.git
+   cd pywebnn
    pip install maturin
    ```
 
 3. **Build with features**:
    ```bash
    # With ONNX Runtime support (requires ONNX Runtime 1.23+)
-   maturin develop --features python,onnx-runtime
+   maturin develop --features onnx-runtime
 
    # macOS: Add CoreML support
-   maturin develop --features python,onnx-runtime,coreml-runtime
+   maturin develop --features onnx-runtime,coreml-runtime
 
    # Basic (validation/conversion only, no execution)
-   maturin develop --features python
+   maturin develop --no-default-features
    ```
 
 **Note:** When building with `onnx-runtime` feature, you need ONNX Runtime libraries available. The Makefile handles this automatically. For manual setup details, see the [repository README](https://github.com/rustnn/pywebnn#development).
@@ -82,11 +82,11 @@ import numpy as np
 
 # Create the ML namespace and context
 ml = webnn.ML()
-context = ml.create_context(accelerated=False, power_preference="default")
+context = ml.create_context(device_type="cpu", power_preference="default")
 ```
 
 The `MLContext` represents the execution environment. Following the [W3C WebNN Device Selection spec](https://github.com/webmachinelearning/webnn/blob/main/device-selection-explainer.md), you provide hints:
-- `accelerated`: `True` to request GPU/NPU, `False` for CPU-only
+- `device_type`: `"cpu"`, `"gpu"`, or `"npu"`
 - `power_preference`: "default", "high-performance", or "low-power"
 
 The platform autonomously selects the actual device based on availability.
@@ -191,7 +191,7 @@ import numpy as np
 def main():
     # Setup
     ml = webnn.ML()
-    context = ml.create_context(accelerated=False)
+    context = ml.create_context(device_type="cpu")
     builder = context.create_graph_builder()
 
     # Build graph: output = relu(x + y)

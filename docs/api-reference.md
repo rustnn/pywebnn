@@ -26,19 +26,17 @@ Creates a new ML namespace instance.
 
 ### Methods
 
-#### `create_context(accelerated=True, power_preference="default")`
+#### `create_context(device_type="cpu", power_preference="default")`
 
 Creates a new execution context following the [W3C WebNN Device Selection spec](https://github.com/webmachinelearning/webnn/blob/main/device-selection-explainer.md).
 
 **Parameters:**
 
-- `accelerated` (bool): Request GPU/NPU acceleration. Default: `True`
-  - `True`: Platform selects GPU or NPU if available
-  - `False`: CPU-only execution
+- `device_type` (str): Requested execution device. Options: `"cpu"`, `"gpu"`, `"npu"`. Default: `"cpu"`
 - `power_preference` (str): Power/performance hint. Options: `"default"`, `"high-performance"`, `"low-power"`. Default: `"default"`
-  - `"low-power"`: Prefers NPU over GPU (Neural Engine on Apple Silicon)
-  - `"high-performance"`: Prefers GPU over NPU
-  - `"default"`: Platform decides (typically GPU > NPU > CPU)
+  - `"low-power"`: Hint for power-efficient execution
+  - `"high-performance"`: Hint for performance-oriented execution
+  - `"default"`: Runtime default behavior
 
 **Returns:** `MLContext`
 
@@ -47,15 +45,15 @@ Creates a new execution context following the [W3C WebNN Device Selection spec](
 ```python
 ml = webnn.ML()
 
-# Request acceleration (default)
-context = ml.create_context(accelerated=True, power_preference="default")
+# Request GPU execution
+context = ml.create_context(device_type="gpu", power_preference="default")
 print(f"Accelerated: {context.accelerated}")  # Check actual capability
 
 # CPU-only execution
-context = ml.create_context(accelerated=False)
+context = ml.create_context(device_type="cpu")
 ```
 
-**Note:** Per the WebNN Device Selection Explainer, `accelerated` is a hint. The platform autonomously selects the actual device based on availability and runtime conditions.
+**Note:** The runtime may still choose fallback execution depending on backend availability and graph support.
 
 ---
 
