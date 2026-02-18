@@ -177,4 +177,4 @@ jobs:
             ${{ runner.os }}-pip-demos-
 
       - name: Run all demos
-        run: make run-all-demos
+        run: make run-all-demos PYTHON=python3.12
