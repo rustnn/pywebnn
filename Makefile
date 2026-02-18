@@ -1,8 +1,8 @@
 .PHONY: help setup setup-demos build test clean dev install lint fmt check all \
 	minilm-demo-hub mobilenet-demo-hub smollm-demo-hub run-all-demo run-all-demos
 
-# Python version to use (defaults to python3 in PATH)
-PYTHON ?= python3.10
+# Python interpreter used by Make targets (override in CI or local env as needed)
+PYTHON ?= python3
 VENV_DIR = .venv
 VENV_ACTIVATE = $(VENV_DIR)/bin/activate
 
