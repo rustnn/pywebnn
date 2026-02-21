@@ -1101,9 +1101,9 @@ impl PyMLGraphBuilder {
                 .or_else(|| bias.map(|b| b.descriptor.static_or_max_shape().len()));
 
             match param_rank {
-                Some(rank) if rank > 0 && rank <= input_rank => {
-                    ((input_rank - rank)..input_rank).map(|i| i as i32).collect()
-                }
+                Some(rank) if rank > 0 && rank <= input_rank => ((input_rank - rank)..input_rank)
+                    .map(|i| i as i32)
+                    .collect(),
                 _ => vec![-1],
             }
         };
