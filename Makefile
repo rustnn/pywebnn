@@ -67,7 +67,9 @@ test:
 		exit 1; \
 	fi
 	@echo "Running Python tests..."
-	. $(VENV_ACTIVATE) && pytest tests/ -v
+	@ORT_DYLIB_PATH="$$(. $(VENV_ACTIVATE) && python tools/resolve_ort_dylib.py)" && \
+	echo "Using ORT_DYLIB_PATH=$$ORT_DYLIB_PATH" && \
+	. $(VENV_ACTIVATE) && ORT_DYLIB_PATH="$$ORT_DYLIB_PATH" pytest tests/ -v
 
 lint:
 	@echo "Running Rust linting..."
@@ -117,7 +119,9 @@ minilm-demo-hub: setup-demos dev
 	@echo ""
 	@echo "Downloading model from Hugging Face Hub: tarekziade/all-MiniLM-L6-v2-webnn"
 	@echo "------------------------------------------------------------------------"
-	MINILM_MODEL_ID=tarekziade/all-MiniLM-L6-v2-webnn $(VENV_DIR)/bin/python examples/minilm_embeddings.py
+	@ORT_DYLIB_PATH="$$(. $(VENV_ACTIVATE) && python tools/resolve_ort_dylib.py)" && \
+	echo "Using ORT_DYLIB_PATH=$$ORT_DYLIB_PATH" && \
+	MINILM_MODEL_ID=tarekziade/all-MiniLM-L6-v2-webnn ORT_DYLIB_PATH="$$ORT_DYLIB_PATH" $(VENV_DIR)/bin/python examples/minilm_embeddings.py
 	@echo ""
 	@echo "========================================================================"
 	@echo "Demo completed successfully!"
@@ -130,7 +134,9 @@ mobilenet-demo-hub: setup-demos dev
 	@echo ""
 	@echo "Downloading model from Hugging Face Hub: tarekziade/mobilenet-webnn"
 	@echo "------------------------------------------------------------------------"
-	$(VENV_DIR)/bin/python examples/mobilenetv2_from_hub.py examples/images/test.jpg --backend cpu
+	@ORT_DYLIB_PATH="$$(. $(VENV_ACTIVATE) && python tools/resolve_ort_dylib.py)" && \
+	echo "Using ORT_DYLIB_PATH=$$ORT_DYLIB_PATH" && \
+	ORT_DYLIB_PATH="$$ORT_DYLIB_PATH" $(VENV_DIR)/bin/python examples/mobilenetv2_from_hub.py examples/images/test.jpg --backend cpu
 	@echo ""
 	@echo "========================================================================"
 	@echo "Demo completed successfully!"
@@ -143,7 +149,9 @@ smollm-demo-hub: setup-demos dev
 	@echo ""
 	@echo "Downloading model from Hugging Face Hub: tarekziade/SmolLM-135M-webnn"
 	@echo "------------------------------------------------------------------------"
-	$(VENV_DIR)/bin/python examples/smollm_from_hub.py --backend cpu --max-new-tokens 15 --compare-transformers
+	@ORT_DYLIB_PATH="$$(. $(VENV_ACTIVATE) && python tools/resolve_ort_dylib.py)" && \
+	echo "Using ORT_DYLIB_PATH=$$ORT_DYLIB_PATH" && \
+	ORT_DYLIB_PATH="$$ORT_DYLIB_PATH" $(VENV_DIR)/bin/python examples/smollm_from_hub.py --backend cpu --max-new-tokens 15 --compare-transformers
 	@echo ""
 	@echo "========================================================================"
 	@echo "Demo completed successfully!"
@@ -156,7 +164,9 @@ run-all-demo: setup-demos dev
 	@echo ""
 	@echo "Demo 1/5: Quantization Round-Trip Test"
 	@echo "------------------------------------------------------------------------"
-	RUN_ALL_DEMOS_LEVELS='$(RUN_ALL_DEMOS_LEVELS)' $(VENV_DIR)/bin/python examples/test_quantization_roundtrip.py
+	@ORT_DYLIB_PATH="$$(. $(VENV_ACTIVATE) && python tools/resolve_ort_dylib.py)" && \
+	echo "Using ORT_DYLIB_PATH=$$ORT_DYLIB_PATH" && \
+	RUN_ALL_DEMOS_LEVELS='$(RUN_ALL_DEMOS_LEVELS)' ORT_DYLIB_PATH="$$ORT_DYLIB_PATH" $(VENV_DIR)/bin/python examples/test_quantization_roundtrip.py
 	@echo ""
 	@echo "Demo 2/5: MiniLM Embeddings (Hugging Face Hub)"
 	@echo "------------------------------------------------------------------------"
@@ -172,7 +182,9 @@ run-all-demo: setup-demos dev
 	@echo ""
 	@echo "Demo 5/5: KV Cache with Device Tensors"
 	@echo "------------------------------------------------------------------------"
-	RUN_ALL_DEMOS_LEVELS='$(RUN_ALL_DEMOS_LEVELS)' $(VENV_DIR)/bin/python examples/kv_cache_device_tensors.py
+	@ORT_DYLIB_PATH="$$(. $(VENV_ACTIVATE) && python tools/resolve_ort_dylib.py)" && \
+	echo "Using ORT_DYLIB_PATH=$$ORT_DYLIB_PATH" && \
+	RUN_ALL_DEMOS_LEVELS='$(RUN_ALL_DEMOS_LEVELS)' ORT_DYLIB_PATH="$$ORT_DYLIB_PATH" $(VENV_DIR)/bin/python examples/kv_cache_device_tensors.py
 	@echo ""
 	@echo "========================================================================"
 	@echo "All demos completed successfully!"
