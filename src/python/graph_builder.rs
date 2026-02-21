@@ -1090,8 +1090,23 @@ impl PyMLGraphBuilder {
             input_operands.push(b.id);
         }
 
-        // Default to normalizing over last dimension if axes not specified
-        let norm_axes = axes.unwrap_or_else(|| vec![-1]);
+        // When axes are omitted, infer them from scale/bias rank so ONNX axis aligns
+        // with X.shape[axis:] for broadcast-compatible operands.
+        let norm_axes = if let Some(axes) = axes {
+            axes
+        } else {
+            let input_rank = input.descriptor.static_or_max_shape().len();
+            let param_rank = scale
+                .map(|s| s.descriptor.static_or_max_shape().len())
+                .or_else(|| bias.map(|b| b.descriptor.static_or_max_shape().len()));
+
+            match param_rank {
+                Some(rank) if rank > 0 && rank <= input_rank => {
+                    ((input_rank - rank)..input_rank).map(|i| i as i32).collect()
+                }
+                _ => vec![-1],
+            }
+        };
 
         let attributes = serde_json::json!({
             "epsilon": epsilon,
