@@ -6,7 +6,7 @@
 #![allow(clippy::useless_conversion)]
 
 use pyo3::prelude::*;
-use rustnn::graph::{DataType, OperandDescriptor};
+use rustnn::graph::{get_static_or_max_size, DataType, OperandDescriptor};
 use std::sync::{Arc, Mutex};
 
 /// MLTensorDescriptor - Describes tensor properties and usage flags
@@ -46,7 +46,7 @@ impl PyMLTensor {
             .descriptor
             .shape
             .iter()
-            .map(|&d| d as usize)
+            .map(|d| get_static_or_max_size(d) as usize)
             .product();
         let data = vec![0.0f32; total_elements];
 
@@ -100,7 +100,7 @@ impl PyMLTensor {
             .descriptor
             .shape
             .iter()
-            .map(|&d| d as usize)
+            .map(|d| get_static_or_max_size(d) as usize)
             .product();
         if data.len() != expected_size {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
@@ -136,7 +136,7 @@ impl PyMLTensor {
     /// Get the shape of the tensor
     #[getter]
     fn shape(&self) -> Vec<u32> {
-        self.tensor_descriptor.descriptor.shape.clone()
+        self.tensor_descriptor.descriptor.static_or_max_shape()
     }
 
     /// Get the number of elements in the tensor
@@ -146,7 +146,7 @@ impl PyMLTensor {
             .descriptor
             .shape
             .iter()
-            .map(|&d| d as usize)
+            .map(|d| get_static_or_max_size(d) as usize)
             .product()
     }
 
@@ -185,9 +185,10 @@ impl PyMLTensor {
 
     /// String representation
     fn __repr__(&self) -> String {
+        let shape = self.tensor_descriptor.descriptor.static_or_max_shape();
         format!(
             "MLTensor(shape={:?}, dtype={}, readable={}, writable={}, exportable_to_gpu={})",
-            self.tensor_descriptor.descriptor.shape,
+            shape,
             self.data_type(),
             self.readable(),
             self.writable(),

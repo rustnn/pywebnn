@@ -303,7 +303,7 @@ impl PyMLGraph {
                     let entry = PyDict::new_bound(py);
                     entry.set_item("id", *input_id)?;
                     entry.set_item("name", input_name)?;
-                    entry.set_item("shape", input_op.descriptor.shape.clone())?;
+                    entry.set_item("shape", input_op.descriptor.static_or_max_shape())?;
                     input_descs.push(entry.into_py(py));
                 }
                 let entry = PyDict::new_bound(py);
@@ -444,8 +444,9 @@ impl PyMLGraph {
         let weights_data = fs::read(weights_path)
             .map_err(|e| PyIOError::new_err(format!("Failed to read weights: {}", e)))?;
 
-        // Create a sanitized lookup map: dots and colons in manifest keys -> underscores
-        // This allows the sanitized graph references to match manifest entries
+        // Create a sanitized lookup map: dots and colons in manifest keys -> underscores.
+        // Some graphs carry sanitized weight refs while others keep original dotted refs.
+        // We support both formats by checking exact refs first, then sanitized refs.
         use std::collections::HashMap;
         let sanitized_manifest: HashMap<String, _> = manifest
             .tensors
@@ -456,8 +457,11 @@ impl PyMLGraph {
         // Resolve weight references in constants
         for (_name, const_decl) in graph_json.consts.iter_mut() {
             if let ConstInit::Weights { r#ref } = &const_decl.init {
-                // Look up weight in sanitized manifest (all keys have underscores)
-                let tensor_entry = sanitized_manifest.get(r#ref);
+                // Prefer exact key lookup for modern manifests, then fallback to sanitized.
+                let tensor_entry = manifest
+                    .tensors
+                    .get(r#ref)
+                    .or_else(|| sanitized_manifest.get(r#ref).copied());
 
                 if let Some(tensor_entry) = tensor_entry {
                     let offset = tensor_entry.byte_offset as usize;

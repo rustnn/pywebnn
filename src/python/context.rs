@@ -13,7 +13,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use rustnn::converters::GraphConverter;
 use rustnn::debug_print;
-use rustnn::graph::OperandDescriptor;
+use rustnn::graph::{get_static_or_max_size, to_dimension_vector, OperandDescriptor};
 
 #[cfg(feature = "onnx-runtime")]
 use rustnn::executors::onnx::{run_onnx_with_inputs, OnnxInput};
@@ -433,7 +433,7 @@ impl PyMLContext {
         let dtype = parse_data_type(data_type)?;
         let descriptor = OperandDescriptor {
             data_type: dtype,
-            shape,
+            shape: to_dimension_vector(&shape),
             pending_permutation: Vec::new(),
         };
 
@@ -592,7 +592,7 @@ impl PyMLContext {
                 .descriptor
                 .shape
                 .iter()
-                .map(|&d| d as i64),
+                .map(|d| i64::from(get_static_or_max_size(d))),
         );
 
         let array = numpy.call_method1("array", (data,))?;
@@ -630,7 +630,7 @@ impl PyMLContext {
             .collect();
 
         // Validate shape
-        if shape != tensor.tensor_descriptor.descriptor.shape {
+        if shape != tensor.tensor_descriptor.descriptor.static_or_max_shape() {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "Shape mismatch: tensor has shape {:?}, but data has shape {:?}",
                 tensor.tensor_descriptor.descriptor.shape, shape
@@ -1135,7 +1135,11 @@ impl PyMLContext {
 
             // Skip empty KV cache inputs (past_sequence_length=0)
             // These will be removed by the converter, so don't expect them in inputs dict
-            let has_empty_dimension = input_op.descriptor.shape.contains(&0);
+            let has_empty_dimension = input_op
+                .descriptor
+                .shape
+                .iter()
+                .any(|d| get_static_or_max_size(d) == 0);
             let is_kv_input = input_name.starts_with("past_key_values_");
             if has_empty_dimension && is_kv_input {
                 debug_print!(
@@ -1300,7 +1304,11 @@ impl PyMLContext {
 
             // Skip empty KV cache inputs (past_sequence_length=0)
             // These will be removed by the converter, so don't expect them in inputs dict
-            let has_empty_dimension = input_op.descriptor.shape.contains(&0);
+            let has_empty_dimension = input_op
+                .descriptor
+                .shape
+                .iter()
+                .any(|d| get_static_or_max_size(d) == 0);
             let is_kv_input = input_name.starts_with("past_key_values_");
             if has_empty_dimension && is_kv_input {
                 debug_print!(

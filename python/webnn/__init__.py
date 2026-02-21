@@ -20,16 +20,43 @@ Example usage:
     >>> graph = builder.build({"output": output})
 """
 
+import asyncio
+import ctypes
 import os
 import sys
-import asyncio
 from typing import Dict, Optional
 import numpy as np
 import numpy.typing as npt
 
-# Set up ONNX Runtime dynamic library path if not already set
-# Users can override by setting ORT_DYLIB_PATH environment variable before importing webnn
+# Set up ONNX Runtime dynamic library path if not already set.
+# Users can override by setting ORT_DYLIB_PATH before importing webnn.
 if "ORT_DYLIB_PATH" not in os.environ:
+    def _is_core_ort_library(path: str) -> bool:
+        name = os.path.basename(path).lower()
+        if any(token in name for token in ("providers", "pybind", "extensions")):
+            return False
+        if sys.platform == "darwin":
+            return name.startswith("libonnxruntime") and name.endswith(".dylib")
+        if sys.platform == "win32":
+            return name.startswith("onnxruntime") and name.endswith(".dll")
+        return name.startswith("libonnxruntime.so")
+
+    def _exports_ort_api_base(path: str) -> bool:
+        try:
+            lib = ctypes.CDLL(path)
+            return hasattr(lib, "OrtGetApiBase")
+        except Exception:
+            return False
+
+    def _pick_ort_dylib(candidates):
+        core_candidates = [p for p in candidates if _is_core_ort_library(p)]
+        # Prefer stable ordering and shortest basename (libonnxruntime.so before versioned variants).
+        core_candidates.sort(key=lambda p: (len(os.path.basename(p)), os.path.basename(p)))
+        for candidate in core_candidates:
+            if _exports_ort_api_base(candidate):
+                return candidate
+        return None
+
     # Try to find ONNX Runtime from the installed onnxruntime package
     try:
         import onnxruntime
@@ -56,16 +83,16 @@ if "ORT_DYLIB_PATH" not in os.environ:
             # Look for the library in the capi directory
             if os.path.exists(ort_capi_dir):
                 ort_libs = glob.glob(os.path.join(ort_capi_dir, lib_pattern))
-                if ort_libs:
-                    # Set ORT_DYLIB_PATH to the full path of the first library found
-                    os.environ["ORT_DYLIB_PATH"] = ort_libs[0]
+                selected = _pick_ort_dylib(ort_libs)
+                if selected:
+                    os.environ["ORT_DYLIB_PATH"] = selected
 
             # Fallback: check the main package directory
             if "ORT_DYLIB_PATH" not in os.environ:
                 ort_libs = glob.glob(os.path.join(ort_package_dir, lib_pattern))
-                if ort_libs:
-                    # Set ORT_DYLIB_PATH to the full path of the first library found
-                    os.environ["ORT_DYLIB_PATH"] = ort_libs[0]
+                selected = _pick_ort_dylib(ort_libs)
+                if selected:
+                    os.environ["ORT_DYLIB_PATH"] = selected
 
     except ImportError:
         # onnxruntime package not installed - user must set ORT_DYLIB_PATH manually

@@ -11,7 +11,8 @@ use super::operand::{parse_data_type, PyMLOperand};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use rustnn::graph::{
-    ConstantData, DataType, GraphInfo, Operand, OperandDescriptor, OperandKind, Operation,
+    to_dimension_vector, ConstantData, DataType, GraphInfo, Operand, OperandDescriptor,
+    OperandKind, Operation,
 };
 use rustnn::shape_inference::{broadcast_shapes, infer_matmul_shape, validate_reshape};
 use rustnn::validator::GraphValidator;
@@ -55,7 +56,7 @@ impl PyMLGraphBuilder {
         let dtype = parse_data_type(data_type)?;
         let descriptor = OperandDescriptor {
             data_type: dtype,
-            shape: shape.clone(),
+            shape: to_dimension_vector(&shape),
             pending_permutation: Vec::new(),
         };
 
@@ -114,7 +115,7 @@ impl PyMLGraphBuilder {
 
         let descriptor = OperandDescriptor {
             data_type: actual_dtype,
-            shape: actual_shape.clone(),
+            shape: to_dimension_vector(&actual_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -167,12 +168,15 @@ impl PyMLGraphBuilder {
     /// Matrix multiplication
     fn matmul(&mut self, a: &PyMLOperand, b: &PyMLOperand) -> PyResult<PyMLOperand> {
         // Use proper matmul shape inference
-        let output_shape = infer_matmul_shape(&a.descriptor.shape, &b.descriptor.shape)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shape = infer_matmul_shape(
+            &a.descriptor.static_or_max_shape(),
+            &b.descriptor.static_or_max_shape(),
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: a.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -240,8 +244,8 @@ impl PyMLGraphBuilder {
         use rustnn::shape_inference::infer_gemm_shape;
 
         let output_shape = infer_gemm_shape(
-            &a.descriptor.shape,
-            &b.descriptor.shape,
+            &a.descriptor.static_or_max_shape(),
+            &b.descriptor.static_or_max_shape(),
             a_transpose,
             b_transpose,
         )
@@ -249,7 +253,7 @@ impl PyMLGraphBuilder {
 
         let output_descriptor = OperandDescriptor {
             data_type: a.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -370,13 +374,16 @@ impl PyMLGraphBuilder {
         };
 
         // Infer output shape
-        let output_shape =
-            infer_conv2d_shape(&input.descriptor.shape, &filter.descriptor.shape, &options)
-                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shape = infer_conv2d_shape(
+            &input.descriptor.static_or_max_shape(),
+            &filter.descriptor.static_or_max_shape(),
+            &options,
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -495,15 +502,15 @@ impl PyMLGraphBuilder {
 
         // Infer output shape
         let output_shape = infer_conv_transpose2d_shape(
-            &input.descriptor.shape,
-            &filter.descriptor.shape,
+            &input.descriptor.static_or_max_shape(),
+            &filter.descriptor.static_or_max_shape(),
             &options,
         )
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -613,12 +620,12 @@ impl PyMLGraphBuilder {
         };
 
         // Infer output shape
-        let output_shape = infer_pool2d_shape(&input.descriptor.shape, &options)
+        let output_shape = infer_pool2d_shape(&input.descriptor.static_or_max_shape(), &options)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -710,12 +717,12 @@ impl PyMLGraphBuilder {
         };
 
         // Infer output shape
-        let output_shape = infer_pool2d_shape(&input.descriptor.shape, &options)
+        let output_shape = infer_pool2d_shape(&input.descriptor.static_or_max_shape(), &options)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -791,12 +798,13 @@ impl PyMLGraphBuilder {
         };
 
         // Infer output shape
-        let output_shape = infer_global_pool_shape(&input.descriptor.shape, &options)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shape =
+            infer_global_pool_shape(&input.descriptor.static_or_max_shape(), &options)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -868,12 +876,13 @@ impl PyMLGraphBuilder {
         };
 
         // Infer output shape
-        let output_shape = infer_global_pool_shape(&input.descriptor.shape, &options)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shape =
+            infer_global_pool_shape(&input.descriptor.static_or_max_shape(), &options)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -926,13 +935,13 @@ impl PyMLGraphBuilder {
         use rustnn::shape_inference::infer_batch_normalization_shape;
 
         // Infer output shape (same as input for batch normalization)
-        let output_shape = infer_batch_normalization_shape(&input.descriptor.shape)
+        let output_shape = infer_batch_normalization_shape(&input.descriptor.static_or_max_shape())
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         // Create output descriptor
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -992,13 +1001,14 @@ impl PyMLGraphBuilder {
         use rustnn::shape_inference::infer_instance_normalization_shape;
 
         // Infer output shape (same as input for instance normalization)
-        let output_shape = infer_instance_normalization_shape(&input.descriptor.shape)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shape =
+            infer_instance_normalization_shape(&input.descriptor.static_or_max_shape())
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         // Create output descriptor
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -1058,13 +1068,13 @@ impl PyMLGraphBuilder {
         use rustnn::shape_inference::infer_layer_normalization_shape;
 
         // Infer output shape (same as input for layer normalization)
-        let output_shape = infer_layer_normalization_shape(&input.descriptor.shape)
+        let output_shape = infer_layer_normalization_shape(&input.descriptor.static_or_max_shape())
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         // Create output descriptor
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -1080,8 +1090,23 @@ impl PyMLGraphBuilder {
             input_operands.push(b.id);
         }
 
-        // Default to normalizing over last dimension if axes not specified
-        let norm_axes = axes.unwrap_or_else(|| vec![-1]);
+        // When axes are omitted, infer them from scale/bias rank so ONNX axis aligns
+        // with X.shape[axis:] for broadcast-compatible operands.
+        let norm_axes = if let Some(axes) = axes {
+            axes
+        } else {
+            let input_rank = input.descriptor.static_or_max_shape().len();
+            let param_rank = scale
+                .map(|s| s.descriptor.static_or_max_shape().len())
+                .or_else(|| bias.map(|b| b.descriptor.static_or_max_shape().len()));
+
+            match param_rank {
+                Some(rank) if rank > 0 && rank <= input_rank => ((input_rank - rank)..input_rank)
+                    .map(|i| i as i32)
+                    .collect(),
+                _ => vec![-1],
+            }
+        };
 
         let attributes = serde_json::json!({
             "epsilon": epsilon,
@@ -1267,12 +1292,15 @@ impl PyMLGraphBuilder {
     fn equal(&mut self, a: &PyMLOperand, b: &PyMLOperand) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_equal_shape;
 
-        let output_shape = infer_equal_shape(&a.descriptor.shape, &b.descriptor.shape)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shape = infer_equal_shape(
+            &a.descriptor.static_or_max_shape(),
+            &b.descriptor.static_or_max_shape(),
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: DataType::Uint8, // Boolean output as uint8
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -1307,12 +1335,15 @@ impl PyMLGraphBuilder {
     fn greater(&mut self, a: &PyMLOperand, b: &PyMLOperand) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_greater_shape;
 
-        let output_shape = infer_greater_shape(&a.descriptor.shape, &b.descriptor.shape)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shape = infer_greater_shape(
+            &a.descriptor.static_or_max_shape(),
+            &b.descriptor.static_or_max_shape(),
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: DataType::Uint8,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -1347,12 +1378,15 @@ impl PyMLGraphBuilder {
     fn greater_or_equal(&mut self, a: &PyMLOperand, b: &PyMLOperand) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_greater_or_equal_shape;
 
-        let output_shape = infer_greater_or_equal_shape(&a.descriptor.shape, &b.descriptor.shape)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shape = infer_greater_or_equal_shape(
+            &a.descriptor.static_or_max_shape(),
+            &b.descriptor.static_or_max_shape(),
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: DataType::Uint8,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -1387,12 +1421,15 @@ impl PyMLGraphBuilder {
     fn lesser(&mut self, a: &PyMLOperand, b: &PyMLOperand) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_lesser_shape;
 
-        let output_shape = infer_lesser_shape(&a.descriptor.shape, &b.descriptor.shape)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shape = infer_lesser_shape(
+            &a.descriptor.static_or_max_shape(),
+            &b.descriptor.static_or_max_shape(),
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: DataType::Uint8,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -1427,12 +1464,15 @@ impl PyMLGraphBuilder {
     fn lesser_or_equal(&mut self, a: &PyMLOperand, b: &PyMLOperand) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_lesser_or_equal_shape;
 
-        let output_shape = infer_lesser_or_equal_shape(&a.descriptor.shape, &b.descriptor.shape)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shape = infer_lesser_or_equal_shape(
+            &a.descriptor.static_or_max_shape(),
+            &b.descriptor.static_or_max_shape(),
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: DataType::Uint8,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -1467,12 +1507,12 @@ impl PyMLGraphBuilder {
     fn logical_not(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_logical_not_shape;
 
-        let output_shape = infer_logical_not_shape(&x.descriptor.shape)
+        let output_shape = infer_logical_not_shape(&x.descriptor.static_or_max_shape())
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: DataType::Uint8,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -1507,12 +1547,15 @@ impl PyMLGraphBuilder {
     fn logical_and(&mut self, a: &PyMLOperand, b: &PyMLOperand) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_logical_and_shape;
 
-        let output_shape = infer_logical_and_shape(&a.descriptor.shape, &b.descriptor.shape)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shape = infer_logical_and_shape(
+            &a.descriptor.static_or_max_shape(),
+            &b.descriptor.static_or_max_shape(),
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: DataType::Uint8,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -1547,12 +1590,15 @@ impl PyMLGraphBuilder {
     fn logical_or(&mut self, a: &PyMLOperand, b: &PyMLOperand) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_logical_or_shape;
 
-        let output_shape = infer_logical_or_shape(&a.descriptor.shape, &b.descriptor.shape)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shape = infer_logical_or_shape(
+            &a.descriptor.static_or_max_shape(),
+            &b.descriptor.static_or_max_shape(),
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: DataType::Uint8,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -1587,12 +1633,15 @@ impl PyMLGraphBuilder {
     fn logical_xor(&mut self, a: &PyMLOperand, b: &PyMLOperand) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_logical_xor_shape;
 
-        let output_shape = infer_logical_xor_shape(&a.descriptor.shape, &b.descriptor.shape)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shape = infer_logical_xor_shape(
+            &a.descriptor.static_or_max_shape(),
+            &b.descriptor.static_or_max_shape(),
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: DataType::Uint8,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -1634,13 +1683,13 @@ impl PyMLGraphBuilder {
     ) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_dequantize_linear_shape;
 
-        let output_shape = infer_dequantize_linear_shape(&input.descriptor.shape)
+        let output_shape = infer_dequantize_linear_shape(&input.descriptor.static_or_max_shape())
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         // Output is always float32 for dequantization
         let output_descriptor = OperandDescriptor {
             data_type: DataType::Float32,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -1682,13 +1731,13 @@ impl PyMLGraphBuilder {
     ) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_quantize_linear_shape;
 
-        let output_shape = infer_quantize_linear_shape(&input.descriptor.shape)
+        let output_shape = infer_quantize_linear_shape(&input.descriptor.static_or_max_shape())
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         // Output data type matches zero_point's data type (typically int8 or uint8)
         let output_descriptor = OperandDescriptor {
             data_type: zero_point.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -1722,12 +1771,12 @@ impl PyMLGraphBuilder {
     /// Reshape operation
     fn reshape(&mut self, x: &PyMLOperand, new_shape: Vec<u32>) -> PyResult<PyMLOperand> {
         // Validate that reshape is possible
-        validate_reshape(&x.descriptor.shape, &new_shape)
+        validate_reshape(&x.descriptor.static_or_max_shape(), &new_shape)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: x.descriptor.data_type,
-            shape: new_shape.clone(),
+            shape: to_dimension_vector(&new_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -1994,12 +2043,15 @@ impl PyMLGraphBuilder {
         use rustnn::shape_inference::infer_transpose_shape;
 
         // Infer output shape
-        let output_shape = infer_transpose_shape(&input.descriptor.shape, permutation.as_deref())
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shape = infer_transpose_shape(
+            &input.descriptor.static_or_max_shape(),
+            permutation.as_deref(),
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -2058,7 +2110,7 @@ impl PyMLGraphBuilder {
         // Collect input shapes
         let input_shapes: Vec<Vec<u32>> = inputs
             .iter()
-            .map(|op| op.descriptor.shape.clone())
+            .map(|op| op.descriptor.static_or_max_shape())
             .collect();
 
         // Infer output shape
@@ -2067,7 +2119,7 @@ impl PyMLGraphBuilder {
 
         let output_descriptor = OperandDescriptor {
             data_type: inputs[0].descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -2128,12 +2180,13 @@ impl PyMLGraphBuilder {
         use rustnn::shape_inference::infer_slice_shape;
 
         // Infer output shape
-        let output_shape = infer_slice_shape(&input.descriptor.shape, &starts, &sizes)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shape =
+            infer_slice_shape(&input.descriptor.static_or_max_shape(), &starts, &sizes)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -2190,12 +2243,12 @@ impl PyMLGraphBuilder {
         use rustnn::shape_inference::infer_expand_shape;
 
         // Infer output shape
-        let output_shape = infer_expand_shape(&input.descriptor.shape, &new_shape)
+        let output_shape = infer_expand_shape(&input.descriptor.static_or_max_shape(), &new_shape)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -2251,13 +2304,16 @@ impl PyMLGraphBuilder {
         use rustnn::shape_inference::infer_gather_shape;
 
         // Infer output shape
-        let output_shape =
-            infer_gather_shape(&input.descriptor.shape, &indices.descriptor.shape, axis)
-                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shape = infer_gather_shape(
+            &input.descriptor.static_or_max_shape(),
+            &indices.descriptor.static_or_max_shape(),
+            axis,
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -2325,8 +2381,9 @@ impl PyMLGraphBuilder {
         };
 
         // Infer output shapes
-        let output_shapes = infer_split_shapes(&input.descriptor.shape, &split_spec, axis)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shapes =
+            infer_split_shapes(&input.descriptor.static_or_max_shape(), &split_spec, axis)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         // Create output operands
         let mut py_operands = Vec::new();
@@ -2335,7 +2392,7 @@ impl PyMLGraphBuilder {
         for output_shape in &output_shapes {
             let output_descriptor = OperandDescriptor {
                 data_type: input.descriptor.data_type,
-                shape: output_shape.clone(),
+                shape: to_dimension_vector(output_shape),
                 pending_permutation: Vec::new(),
             };
 
@@ -2404,15 +2461,15 @@ impl PyMLGraphBuilder {
 
         // Infer output shape
         let output_shape = infer_where_shape(
-            &condition.descriptor.shape,
-            &true_value.descriptor.shape,
-            &false_value.descriptor.shape,
+            &condition.descriptor.static_or_max_shape(),
+            &true_value.descriptor.static_or_max_shape(),
+            &false_value.descriptor.static_or_max_shape(),
         )
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: true_value.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -2466,12 +2523,12 @@ impl PyMLGraphBuilder {
         use rustnn::shape_inference::infer_pad_shape;
 
         // Infer output shape
-        let output_shape = infer_pad_shape(&input.descriptor.shape, &padding)
+        let output_shape = infer_pad_shape(&input.descriptor.static_or_max_shape(), &padding)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -2530,11 +2587,11 @@ impl PyMLGraphBuilder {
     fn gelu(&mut self, input: &PyMLOperand) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_gelu_shape;
 
-        let output_shape = infer_gelu_shape(&input.descriptor.shape);
+        let output_shape = infer_gelu_shape(&input.descriptor.static_or_max_shape());
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -2577,12 +2634,13 @@ impl PyMLGraphBuilder {
     fn squeeze(&mut self, input: &PyMLOperand, axes: Option<Vec<u32>>) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_squeeze_shape;
 
-        let output_shape = infer_squeeze_shape(&input.descriptor.shape, axes.as_deref())
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shape =
+            infer_squeeze_shape(&input.descriptor.static_or_max_shape(), axes.as_deref())
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -2629,12 +2687,12 @@ impl PyMLGraphBuilder {
     fn unsqueeze(&mut self, input: &PyMLOperand, axes: Vec<u32>) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_unsqueeze_shape;
 
-        let output_shape = infer_unsqueeze_shape(&input.descriptor.shape, &axes)
+        let output_shape = infer_unsqueeze_shape(&input.descriptor.static_or_max_shape(), &axes)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -2689,8 +2747,12 @@ impl PyMLGraphBuilder {
     ) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_arg_reduce_shape;
 
-        let output_shape = infer_arg_reduce_shape(&input.descriptor.shape, axis, keep_dimensions)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shape = infer_arg_reduce_shape(
+            &input.descriptor.static_or_max_shape(),
+            axis,
+            keep_dimensions,
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         // Parse output data type, default to int64
         let output_type = match output_data_type {
@@ -2706,7 +2768,7 @@ impl PyMLGraphBuilder {
 
         let output_descriptor = OperandDescriptor {
             data_type: output_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -2765,8 +2827,12 @@ impl PyMLGraphBuilder {
     ) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_arg_reduce_shape;
 
-        let output_shape = infer_arg_reduce_shape(&input.descriptor.shape, axis, keep_dimensions)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shape = infer_arg_reduce_shape(
+            &input.descriptor.static_or_max_shape(),
+            axis,
+            keep_dimensions,
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         // Parse output data type, default to int64
         let output_type = match output_data_type {
@@ -2782,7 +2848,7 @@ impl PyMLGraphBuilder {
 
         let output_descriptor = OperandDescriptor {
             data_type: output_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -2832,7 +2898,7 @@ impl PyMLGraphBuilder {
     fn cast(&mut self, input: &PyMLOperand, data_type: &str) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_cast_shape;
 
-        let output_shape = infer_cast_shape(&input.descriptor.shape);
+        let output_shape = infer_cast_shape(&input.descriptor.static_or_max_shape());
 
         // Parse target data type
         let target_type = match data_type {
@@ -2853,7 +2919,7 @@ impl PyMLGraphBuilder {
 
         let output_descriptor = OperandDescriptor {
             data_type: target_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -2953,16 +3019,16 @@ impl PyMLGraphBuilder {
         use rustnn::shape_inference::infer_scatter_elements_shape;
 
         let output_shape = infer_scatter_elements_shape(
-            &input.descriptor.shape,
-            &indices.descriptor.shape,
-            &updates.descriptor.shape,
+            &input.descriptor.static_or_max_shape(),
+            &indices.descriptor.static_or_max_shape(),
+            &updates.descriptor.static_or_max_shape(),
             axis,
         )
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -3017,15 +3083,15 @@ impl PyMLGraphBuilder {
         use rustnn::shape_inference::infer_scatter_nd_shape;
 
         let output_shape = infer_scatter_nd_shape(
-            &input.descriptor.shape,
-            &indices.descriptor.shape,
-            &updates.descriptor.shape,
+            &input.descriptor.static_or_max_shape(),
+            &indices.descriptor.static_or_max_shape(),
+            &updates.descriptor.static_or_max_shape(),
         )
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -3071,12 +3137,12 @@ impl PyMLGraphBuilder {
     fn tile(&mut self, input: &PyMLOperand, repetitions: Vec<u32>) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_tile_shape;
 
-        let output_shape = infer_tile_shape(&input.descriptor.shape, &repetitions)
+        let output_shape = infer_tile_shape(&input.descriptor.static_or_max_shape(), &repetitions)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -3130,12 +3196,12 @@ impl PyMLGraphBuilder {
     ) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_triangular_shape;
 
-        let output_shape = infer_triangular_shape(&input.descriptor.shape)
+        let output_shape = infer_triangular_shape(&input.descriptor.static_or_max_shape())
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -3191,12 +3257,12 @@ impl PyMLGraphBuilder {
     ) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_hardsigmoid_shape;
 
-        let output_shape = infer_hardsigmoid_shape(&input.descriptor.shape)
+        let output_shape = infer_hardsigmoid_shape(&input.descriptor.static_or_max_shape())
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -3247,12 +3313,12 @@ impl PyMLGraphBuilder {
     fn hard_swish(&mut self, input: &PyMLOperand, alpha: f32, beta: f32) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_hardswish_shape;
 
-        let output_shape = infer_hardswish_shape(&input.descriptor.shape)
+        let output_shape = infer_hardswish_shape(&input.descriptor.static_or_max_shape())
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -3301,12 +3367,12 @@ impl PyMLGraphBuilder {
     fn softplus(&mut self, input: &PyMLOperand) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_softplus_shape;
 
-        let output_shape = infer_softplus_shape(&input.descriptor.shape)
+        let output_shape = infer_softplus_shape(&input.descriptor.static_or_max_shape())
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -3352,12 +3418,12 @@ impl PyMLGraphBuilder {
     fn softsign(&mut self, input: &PyMLOperand) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_softsign_shape;
 
-        let output_shape = infer_softsign_shape(&input.descriptor.shape)
+        let output_shape = infer_softsign_shape(&input.descriptor.static_or_max_shape())
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -3423,11 +3489,11 @@ impl PyMLGraphBuilder {
             )));
         }
 
-        let output_shape = infer_clamp_shape(&input.descriptor.shape);
+        let output_shape = infer_clamp_shape(&input.descriptor.static_or_max_shape());
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -3479,12 +3545,12 @@ impl PyMLGraphBuilder {
     fn elu(&mut self, input: &PyMLOperand, alpha: f32) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_elu_shape;
 
-        let output_shape = infer_elu_shape(&input.descriptor.shape)
+        let output_shape = infer_elu_shape(&input.descriptor.static_or_max_shape())
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -3535,12 +3601,12 @@ impl PyMLGraphBuilder {
     fn leaky_relu(&mut self, input: &PyMLOperand, alpha: f32) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_leakyrelu_shape;
 
-        let output_shape = infer_leakyrelu_shape(&input.descriptor.shape)
+        let output_shape = infer_leakyrelu_shape(&input.descriptor.static_or_max_shape())
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -3590,12 +3656,15 @@ impl PyMLGraphBuilder {
     fn prelu(&mut self, input: &PyMLOperand, slope: &PyMLOperand) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_prelu_shape;
 
-        let output_shape = infer_prelu_shape(&input.descriptor.shape, &slope.descriptor.shape)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shape = infer_prelu_shape(
+            &input.descriptor.static_or_max_shape(),
+            &slope.descriptor.static_or_max_shape(),
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -3650,12 +3719,15 @@ impl PyMLGraphBuilder {
         b: &PyMLOperand,
     ) -> PyResult<PyMLOperand> {
         // Compute broadcasted output shape
-        let output_shape = broadcast_shapes(&a.descriptor.shape, &b.descriptor.shape)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shape = broadcast_shapes(
+            &a.descriptor.static_or_max_shape(),
+            &b.descriptor.static_or_max_shape(),
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: a.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 
@@ -3734,12 +3806,12 @@ impl PyMLGraphBuilder {
         };
 
         // Infer output shape
-        let output_shape = infer_reduce_shape(&input.descriptor.shape, &options)
+        let output_shape = infer_reduce_shape(&input.descriptor.static_or_max_shape(), &options)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
-            shape: output_shape,
+            shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
 

@@ -631,6 +631,9 @@ def main():
     for i, sent in enumerate(test_sentences, 1):
         print(f"  S{i}. {sent}")
 
+    # Initialize WebNN embedder and require a successful comparison.
+    webnn_comparison_completed = False
+
     # Initialize WebNN embedder (if available)
     print("\n" + "-" * 70)
     print("Initializing WebNN Implementation")
@@ -662,6 +665,7 @@ def main():
             "Transformers (Reference)",
             "WebNN",
         )
+        webnn_comparison_completed = True
 
         # Fail if embeddings are not very similar
         if not is_very_similar:
@@ -712,6 +716,7 @@ def main():
                         "Transformers (Reference)",
                         "WebNN",
                     )
+                    webnn_comparison_completed = True
 
                     # Fail if embeddings are not very similar
                     if not is_very_similar:
@@ -732,6 +737,13 @@ def main():
             import traceback
 
             traceback.print_exc()
+
+    if not webnn_comparison_completed:
+        print("\n" + "=" * 70)
+        print("[ERROR] Test FAILED: WebNN comparison did not complete")
+        print("[ERROR] The demo cannot report success without a WebNN result")
+        print("=" * 70)
+        sys.exit(1)
 
     print("\n" + "=" * 70)
     print("[OK] Test PASSED: Embeddings are VERY SIMILAR")

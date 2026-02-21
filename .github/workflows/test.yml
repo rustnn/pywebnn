@@ -91,6 +91,8 @@ jobs:
   python-test:
     name: Python Tests on Linux
     runs-on: ubuntu-latest
+    env:
+      PYTHON: python3.12
     steps:
       - uses: actions/checkout@v4
 
@@ -133,6 +135,8 @@ jobs:
   e2e-demos:
     name: End-to-End Demos
     runs-on: ubuntu-latest
+    env:
+      PYTHON: python3.12
     steps:
       - uses: actions/checkout@v4
 
