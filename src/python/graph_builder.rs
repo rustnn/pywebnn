@@ -14,6 +14,15 @@ use rustnn::graph::{
     to_dimension_vector, ConstantData, DataType, GraphInfo, Operand, OperandDescriptor,
     OperandKind, Operation,
 };
+use rustnn::operator_options::{
+    MLArgMinMaxOptions, MLBatchNormalizationOptions, MLCastOptions, MLClampOptions,
+    MLConcatOptions, MLConv2dOptions, MLConvTranspose2dOptions, MLDimension, MLEluOptions,
+    MLExpandOptions, MLGatherOptions, MLGemmOptions, MLHardSigmoidOptions, MLHardSwishOptions,
+    MLInstanceNormalizationOptions, MLLayerNormalizationOptions, MLLeakyReluOptions, MLPadOptions,
+    MLPool2dOptions, MLReduceOptions, MLReshapeOptions, MLScatterOptions, MLSliceOptions,
+    MLSplitOptions, MLSqueezeOptions, MLTileOptions, MLTransposeOptions, MLTriangularOptions,
+    MLUnsqueezeOptions, OperatorOptions,
+};
 use rustnn::shape_inference::{broadcast_shapes, infer_matmul_shape, validate_reshape};
 use rustnn::validator::GraphValidator;
 use std::collections::HashMap;
@@ -188,7 +197,7 @@ impl PyMLGraphBuilder {
             input_operands: vec![a.id, b.id],
             output_operand: Some(output_id),
             output_operands: Vec::new(),
-            attributes: serde_json::json!({}),
+            attributes: OperatorOptions::default(),
             label: None,
         };
 
@@ -260,22 +269,20 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let mut attributes = serde_json::json!({
-            "alpha": alpha,
-            "beta": beta,
-            "aTranspose": a_transpose,
-            "bTranspose": b_transpose,
-        });
-
         let mut input_operands = vec![a.id, b.id];
-
-        // Add optional bias operand
+        let c_operand_id = c.as_ref().map(|o| o.id);
         if let Some(c_operand) = c {
             input_operands.push(c_operand.id);
-            attributes["hasBias"] = serde_json::json!(true);
-        } else {
-            attributes["hasBias"] = serde_json::json!(false);
         }
+
+        let attributes = OperatorOptions::Gemm(MLGemmOptions {
+            label: String::new(),
+            c: c_operand_id,
+            alpha: alpha as f64,
+            beta: beta as f64,
+            a_transpose,
+            b_transpose,
+        });
 
         let operation = Operation {
             op_type: "gemm".to_string(),
@@ -396,27 +403,23 @@ impl PyMLGraphBuilder {
             input_operands.push(bias_op.id);
         }
 
-        // Store parameters as JSON attributes
-        let mut attributes_map = serde_json::json!({
-            "strides": strides,
-            "dilations": dilations,
-            "pads": pads,
-            "groups": groups,
-            "inputLayout": input_layout.unwrap_or("nchw"),
-            "filterLayout": filter_layout.unwrap_or("oihw"),
+        let attributes = OperatorOptions::Conv2d(MLConv2dOptions {
+            label: String::new(),
+            padding: pads,
+            strides,
+            dilations,
+            groups,
+            input_layout: input_layout.unwrap_or("nchw").to_string(),
+            filter_layout: filter_layout.unwrap_or("oihw").to_string(),
+            bias: bias.map(|b| b.id),
         });
-
-        // Add bias flag if present
-        if bias.is_some() {
-            attributes_map["hasBias"] = serde_json::json!(true);
-        }
 
         let operation = Operation {
             op_type: "conv2d".to_string(),
             input_operands,
             output_operand: Some(output_id),
             output_operands: Vec::new(),
-            attributes: attributes_map,
+            attributes,
             label: None,
         };
 
@@ -523,26 +526,18 @@ impl PyMLGraphBuilder {
             input_operands.push(bias_op.id);
         }
 
-        // Store parameters as JSON attributes
-        let mut attributes = serde_json::json!({
-            "strides": strides,
-            "dilations": dilations,
-            "pads": pads,
-            "outputPadding": output_padding,
-            "groups": groups,
-            "inputLayout": input_layout.unwrap_or("nchw"),
-            "filterLayout": filter_layout.unwrap_or("iohw"),
+        let attributes = OperatorOptions::ConvTranspose2d(MLConvTranspose2dOptions {
+            label: String::new(),
+            padding: pads,
+            strides,
+            dilations,
+            output_padding,
+            output_sizes: output_sizes.clone(),
+            groups,
+            input_layout: input_layout.unwrap_or("nchw").to_string(),
+            filter_layout: filter_layout.unwrap_or("iohw").to_string(),
+            bias: bias.map(|b| b.id),
         });
-
-        // Add output_sizes if specified
-        if let Some(ref sizes) = output_sizes {
-            attributes["outputSizes"] = serde_json::json!(sizes);
-        }
-
-        // Add bias flag if present
-        if bias.is_some() {
-            attributes["hasBias"] = serde_json::json!(true);
-        }
 
         let operation = Operation {
             op_type: "convTranspose2d".to_string(),
@@ -632,13 +627,15 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        // Store parameters as JSON attributes
-        let attributes = serde_json::json!({
-            "windowDimensions": window_dimensions,
-            "strides": strides,
-            "dilations": dilations,
-            "pads": pads,
-            "layout": layout.unwrap_or("nchw"),
+        let attributes = OperatorOptions::Pool2d(MLPool2dOptions {
+            label: String::new(),
+            window_dimensions: Some(window_dimensions),
+            padding: pads,
+            strides,
+            dilations,
+            layout: layout.unwrap_or("nchw").to_string(),
+            output_shape_rounding: String::new(),
+            output_sizes: None,
         });
 
         let operation = Operation {
@@ -729,13 +726,15 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        // Store parameters as JSON attributes
-        let attributes = serde_json::json!({
-            "windowDimensions": window_dimensions,
-            "strides": strides,
-            "dilations": dilations,
-            "pads": pads,
-            "layout": layout.unwrap_or("nchw"),
+        let attributes = OperatorOptions::Pool2d(MLPool2dOptions {
+            label: String::new(),
+            window_dimensions: Some(window_dimensions),
+            padding: pads,
+            strides,
+            dilations,
+            layout: layout.unwrap_or("nchw").to_string(),
+            output_shape_rounding: String::new(),
+            output_sizes: None,
         });
 
         let operation = Operation {
@@ -811,9 +810,15 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        // Store parameters as JSON attributes
-        let attributes = serde_json::json!({
-            "layout": layout.unwrap_or("nchw"),
+        let attributes = OperatorOptions::Pool2d(MLPool2dOptions {
+            label: String::new(),
+            window_dimensions: None,
+            padding: vec![],
+            strides: vec![],
+            dilations: vec![],
+            layout: layout.unwrap_or("nchw").to_string(),
+            output_shape_rounding: String::new(),
+            output_sizes: None,
         });
 
         let operation = Operation {
@@ -889,9 +894,15 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        // Store parameters as JSON attributes
-        let attributes = serde_json::json!({
-            "layout": layout.unwrap_or("nchw"),
+        let attributes = OperatorOptions::Pool2d(MLPool2dOptions {
+            label: String::new(),
+            window_dimensions: None,
+            padding: vec![],
+            strides: vec![],
+            dilations: vec![],
+            layout: layout.unwrap_or("nchw").to_string(),
+            output_shape_rounding: String::new(),
+            output_sizes: None,
         });
 
         let operation = Operation {
@@ -957,11 +968,12 @@ impl PyMLGraphBuilder {
             input_operands.push(b.id);
         }
 
-        let attributes = serde_json::json!({
-            "epsilon": epsilon,
-            "axis": axis,
-            "hasScale": scale.is_some(),
-            "hasBias": bias.is_some(),
+        let attributes = OperatorOptions::BatchNormalization(MLBatchNormalizationOptions {
+            label: String::new(),
+            scale: scale.map(|s| s.id),
+            bias: bias.map(|b| b.id),
+            axis: axis as u32,
+            epsilon: epsilon as f64,
         });
 
         let operation = Operation {
@@ -1024,11 +1036,14 @@ impl PyMLGraphBuilder {
             input_operands.push(b.id);
         }
 
-        let attributes = serde_json::json!({
-            "epsilon": epsilon,
-            "layout": layout.unwrap_or("nchw"),
-            "hasScale": scale.is_some(),
-            "hasBias": bias.is_some(),
+        let attributes = OperatorOptions::InstanceNormalization(MLInstanceNormalizationOptions {
+            label: String::new(),
+            scale: scale.map(|s| s.id),
+            bias: bias.map(|b| b.id),
+            has_scale: Some(scale.is_some()),
+            has_bias: Some(bias.is_some()),
+            epsilon: epsilon as f64,
+            layout: layout.unwrap_or("nchw").to_string(),
         });
 
         let operation = Operation {
@@ -1108,11 +1123,26 @@ impl PyMLGraphBuilder {
             }
         };
 
-        let attributes = serde_json::json!({
-            "epsilon": epsilon,
-            "axes": norm_axes,
-            "hasScale": scale.is_some(),
-            "hasBias": bias.is_some(),
+        let input_rank = input.descriptor.static_or_max_shape().len();
+        let attributes = OperatorOptions::LayerNormalization(MLLayerNormalizationOptions {
+            label: String::new(),
+            scale: scale.map(|s| s.id),
+            bias: bias.map(|b| b.id),
+            has_scale: Some(scale.is_some()),
+            has_bias: Some(bias.is_some()),
+            axes: Some(
+                norm_axes
+                    .iter()
+                    .map(|&x| {
+                        if x >= 0 {
+                            x as u32
+                        } else {
+                            (input_rank as i32 + x) as u32
+                        }
+                    })
+                    .collect(),
+            ),
+            epsilon: epsilon as f64,
         });
 
         let operation = Operation {
@@ -1312,7 +1342,7 @@ impl PyMLGraphBuilder {
             input_operands: vec![a.id, b.id],
             output_operand: Some(output_id),
             output_operands: Vec::new(),
-            attributes: serde_json::json!({}),
+            attributes: OperatorOptions::default(),
             label: None,
         };
 
@@ -1355,7 +1385,7 @@ impl PyMLGraphBuilder {
             input_operands: vec![a.id, b.id],
             output_operand: Some(output_id),
             output_operands: Vec::new(),
-            attributes: serde_json::json!({}),
+            attributes: OperatorOptions::default(),
             label: None,
         };
 
@@ -1398,7 +1428,7 @@ impl PyMLGraphBuilder {
             input_operands: vec![a.id, b.id],
             output_operand: Some(output_id),
             output_operands: Vec::new(),
-            attributes: serde_json::json!({}),
+            attributes: OperatorOptions::default(),
             label: None,
         };
 
@@ -1441,7 +1471,7 @@ impl PyMLGraphBuilder {
             input_operands: vec![a.id, b.id],
             output_operand: Some(output_id),
             output_operands: Vec::new(),
-            attributes: serde_json::json!({}),
+            attributes: OperatorOptions::default(),
             label: None,
         };
 
@@ -1484,7 +1514,7 @@ impl PyMLGraphBuilder {
             input_operands: vec![a.id, b.id],
             output_operand: Some(output_id),
             output_operands: Vec::new(),
-            attributes: serde_json::json!({}),
+            attributes: OperatorOptions::default(),
             label: None,
         };
 
@@ -1524,7 +1554,7 @@ impl PyMLGraphBuilder {
             input_operands: vec![x.id],
             output_operand: Some(output_id),
             output_operands: Vec::new(),
-            attributes: serde_json::json!({}),
+            attributes: OperatorOptions::default(),
             label: None,
         };
 
@@ -1567,7 +1597,7 @@ impl PyMLGraphBuilder {
             input_operands: vec![a.id, b.id],
             output_operand: Some(output_id),
             output_operands: Vec::new(),
-            attributes: serde_json::json!({}),
+            attributes: OperatorOptions::default(),
             label: None,
         };
 
@@ -1610,7 +1640,7 @@ impl PyMLGraphBuilder {
             input_operands: vec![a.id, b.id],
             output_operand: Some(output_id),
             output_operands: Vec::new(),
-            attributes: serde_json::json!({}),
+            attributes: OperatorOptions::default(),
             label: None,
         };
 
@@ -1653,7 +1683,7 @@ impl PyMLGraphBuilder {
             input_operands: vec![a.id, b.id],
             output_operand: Some(output_id),
             output_operands: Vec::new(),
-            attributes: serde_json::json!({}),
+            attributes: OperatorOptions::default(),
             label: None,
         };
 
@@ -1701,7 +1731,7 @@ impl PyMLGraphBuilder {
             input_operands: vec![input.id, scale.id, zero_point.id],
             output_operand: Some(output_id),
             output_operands: Vec::new(),
-            attributes: serde_json::json!({}),
+            attributes: OperatorOptions::default(),
             label: None,
         };
 
@@ -1749,7 +1779,7 @@ impl PyMLGraphBuilder {
             input_operands: vec![input.id, scale.id, zero_point.id],
             output_operand: Some(output_id),
             output_operands: Vec::new(),
-            attributes: serde_json::json!({}),
+            attributes: OperatorOptions::default(),
             label: None,
         };
 
@@ -1783,14 +1813,17 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
+        let attributes = OperatorOptions::Reshape(MLReshapeOptions {
+            label: String::new(),
+            new_shape: new_shape.iter().map(|&d| MLDimension::Static(d)).collect(),
+        });
+
         let operation = Operation {
             op_type: "reshape".to_string(),
             input_operands: vec![x.id],
             output_operand: Some(output_id),
             output_operands: Vec::new(),
-            attributes: serde_json::json!({
-                "newShape": new_shape
-            }),
+            attributes,
             label: None,
         };
 
@@ -2058,11 +2091,10 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        // Store parameters as JSON attributes
-        let mut attributes = serde_json::json!({});
-        if let Some(perm) = permutation {
-            attributes["permutation"] = serde_json::json!(perm);
-        }
+        let attributes = OperatorOptions::Transpose(MLTransposeOptions {
+            label: String::new(),
+            permutation: permutation.unwrap_or_default(),
+        });
 
         let operation = Operation {
             op_type: "transpose".to_string(),
@@ -2129,8 +2161,9 @@ impl PyMLGraphBuilder {
         // Collect input IDs
         let input_ids: Vec<u32> = inputs.iter().map(|op| op.id).collect();
 
-        let attributes = serde_json::json!({
-            "axis": axis,
+        let attributes = OperatorOptions::Concat(MLConcatOptions {
+            label: String::new(),
+            axis,
         });
 
         let operation = Operation {
@@ -2193,17 +2226,16 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let mut attributes = serde_json::json!({
-            "starts": starts,
-            "sizes": sizes,
+        let strides_vec: Vec<u32> = strides
+            .map(|s| s.iter().map(|&x| x as u32).collect())
+            .unwrap_or_default();
+
+        let attributes = OperatorOptions::Slice(MLSliceOptions {
+            label: String::new(),
+            starts,
+            sizes,
+            strides: strides_vec,
         });
-
-        // Add strides if provided
-        if let Some(strides_val) = strides {
-            attributes["strides"] = serde_json::json!(strides_val);
-        }
-
-        let attributes = attributes;
 
         let operation = Operation {
             op_type: "slice".to_string(),
@@ -2255,8 +2287,10 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = serde_json::json!({
-            "newShape": new_shape,
+        let attributes = OperatorOptions::Expand(MLExpandOptions {
+            label: String::new(),
+            new_shape: new_shape.iter().map(|&d| MLDimension::Static(d)).collect(),
+            axes: vec![],
         });
 
         let operation = Operation {
@@ -2320,8 +2354,10 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = serde_json::json!({
-            "axis": axis,
+        let attributes = OperatorOptions::Gather(MLGatherOptions {
+            label: String::new(),
+            axis,
+            batch_dimensions: None,
         });
 
         let operation = Operation {
@@ -2413,15 +2449,16 @@ impl PyMLGraphBuilder {
             output_ids.push(output_id);
         }
 
-        // Create operation with multiple outputs
-        let attributes = match split_spec {
-            SplitSpec::Count(count) => serde_json::json!({
-                "axis": axis,
-                "splits": count,
+        let attributes = match &split_spec {
+            SplitSpec::Count(_) => OperatorOptions::Split(MLSplitOptions {
+                label: String::new(),
+                axis,
+                splits: vec![], // equal-split count; converters use output count
             }),
-            SplitSpec::Sizes(sizes) => serde_json::json!({
-                "axis": axis,
-                "splits": sizes,
+            SplitSpec::Sizes(sizes) => OperatorOptions::Split(MLSplitOptions {
+                label: String::new(),
+                axis,
+                splits: sizes.clone(),
             }),
         };
 
@@ -2481,7 +2518,7 @@ impl PyMLGraphBuilder {
             input_operands: vec![condition.id, true_value.id, false_value.id],
             output_operand: Some(output_id),
             output_operands: Vec::new(),
-            attributes: serde_json::json!({}),
+            attributes: OperatorOptions::default(),
             label: None,
         };
 
@@ -2544,14 +2581,17 @@ impl PyMLGraphBuilder {
             )));
         }
 
-        let mut attributes = serde_json::json!({
-            "padding": padding,
-            "mode": mode_str,
-        });
+        let half = padding.len() / 2;
+        let beginning_padding = padding[..half].to_vec();
+        let ending_padding = padding[half..].to_vec();
 
-        if let Some(v) = value {
-            attributes["value"] = serde_json::json!(v);
-        }
+        let attributes = OperatorOptions::Pad(MLPadOptions {
+            label: String::new(),
+            mode: mode_str.to_string(),
+            value: value.map(serde_json::Value::from),
+            beginning_padding,
+            ending_padding,
+        });
 
         let operation = Operation {
             op_type: "pad".to_string(),
@@ -2603,7 +2643,7 @@ impl PyMLGraphBuilder {
             input_operands: vec![input.id],
             output_operand: Some(output_id),
             output_operands: Vec::new(),
-            attributes: serde_json::json!({}),
+            attributes: OperatorOptions::default(),
             label: None,
         };
 
@@ -2647,10 +2687,10 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let mut attributes = serde_json::json!({});
-        if let Some(axes) = axes {
-            attributes["axes"] = serde_json::json!(axes);
-        }
+        let attributes = OperatorOptions::Squeeze(MLSqueezeOptions {
+            label: String::new(),
+            axes: axes.unwrap_or_default(),
+        });
 
         let operation = Operation {
             op_type: "squeeze".to_string(),
@@ -2699,8 +2739,9 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = serde_json::json!({
-            "axes": axes
+        let attributes = OperatorOptions::Unsqueeze(MLUnsqueezeOptions {
+            label: String::new(),
+            axes,
         });
 
         let operation = Operation {
@@ -2775,13 +2816,12 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let mut attributes = serde_json::json!({
-            "axis": axis,
-            "keepDimensions": keep_dimensions
+        let attributes = OperatorOptions::ArgMinMax(MLArgMinMaxOptions {
+            label: String::new(),
+            axis,
+            keep_dimensions,
+            output_data_type: output_data_type.unwrap_or("int64").to_string(),
         });
-        if let Some(dtype) = output_data_type {
-            attributes["outputDataType"] = serde_json::json!(dtype);
-        }
 
         let operation = Operation {
             op_type: "argMax".to_string(),
@@ -2855,13 +2895,12 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let mut attributes = serde_json::json!({
-            "axis": axis,
-            "keepDimensions": keep_dimensions
+        let attributes = OperatorOptions::ArgMinMax(MLArgMinMaxOptions {
+            label: String::new(),
+            axis,
+            keep_dimensions,
+            output_data_type: output_data_type.unwrap_or("int64").to_string(),
         });
-        if let Some(dtype) = output_data_type {
-            attributes["outputDataType"] = serde_json::json!(dtype);
-        }
 
         let operation = Operation {
             op_type: "argMin".to_string(),
@@ -2926,8 +2965,9 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = serde_json::json!({
-            "to": data_type
+        let attributes = OperatorOptions::Cast(MLCastOptions {
+            label: String::new(),
+            to: data_type.to_string(),
         });
 
         let operation = Operation {
@@ -3035,8 +3075,9 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = serde_json::json!({
-            "axis": axis,
+        let attributes = OperatorOptions::ScatterElements(MLScatterOptions {
+            label: String::new(),
+            axis: axis as u32,
         });
 
         let operation = Operation {
@@ -3098,14 +3139,12 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = serde_json::json!({});
-
         let operation = Operation {
             op_type: "scatterND".to_string(),
             input_operands: vec![input.id, indices.id, updates.id],
             output_operand: Some(output_id),
             output_operands: Vec::new(),
-            attributes,
+            attributes: OperatorOptions::default(),
             label: None,
         };
 
@@ -3149,8 +3188,9 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = serde_json::json!({
-            "repetitions": repetitions,
+        let attributes = OperatorOptions::Tile(MLTileOptions {
+            label: String::new(),
+            repetitions,
         });
 
         let operation = Operation {
@@ -3208,9 +3248,10 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = serde_json::json!({
-            "upper": upper,
-            "diagonal": diagonal,
+        let attributes = OperatorOptions::Triangular(MLTriangularOptions {
+            label: String::new(),
+            upper: Some(upper),
+            diagonal,
         });
 
         let operation = Operation {
@@ -3269,9 +3310,10 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = serde_json::json!({
-            "alpha": alpha,
-            "beta": beta,
+        let attributes = OperatorOptions::HardSigmoid(MLHardSigmoidOptions {
+            label: String::new(),
+            alpha: alpha as f64,
+            beta: beta as f64,
         });
 
         let operation = Operation {
@@ -3325,9 +3367,10 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = serde_json::json!({
-            "alpha": alpha,
-            "beta": beta,
+        let attributes = OperatorOptions::HardSwish(MLHardSwishOptions {
+            label: String::new(),
+            alpha: alpha as f64,
+            beta: beta as f64,
         });
 
         let operation = Operation {
@@ -3379,14 +3422,12 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = serde_json::json!({});
-
         let operation = Operation {
             op_type: "softplus".to_string(),
             input_operands: vec![input.id],
             output_operand: Some(output_id),
             output_operands: Vec::new(),
-            attributes,
+            attributes: OperatorOptions::default(),
             label: None,
         };
 
@@ -3430,14 +3471,12 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = serde_json::json!({});
-
         let operation = Operation {
             op_type: "softsign".to_string(),
             input_operands: vec![input.id],
             output_operand: Some(output_id),
             output_operands: Vec::new(),
-            attributes,
+            attributes: OperatorOptions::default(),
             label: None,
         };
 
@@ -3500,9 +3539,10 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = serde_json::json!({
-            "minValue": min_value,
-            "maxValue": max_value,
+        let attributes = OperatorOptions::Clamp(MLClampOptions {
+            label: String::new(),
+            min_value: Some(serde_json::Value::from(f64::from(min_value))),
+            max_value: Some(serde_json::Value::from(f64::from(max_value))),
         });
 
         let operation = Operation {
@@ -3557,8 +3597,9 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = serde_json::json!({
-            "alpha": alpha,
+        let attributes = OperatorOptions::Elu(MLEluOptions {
+            label: String::new(),
+            alpha: alpha as f64,
         });
 
         let operation = Operation {
@@ -3613,8 +3654,9 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = serde_json::json!({
-            "alpha": alpha,
+        let attributes = OperatorOptions::LeakyRelu(MLLeakyReluOptions {
+            label: String::new(),
+            alpha: alpha as f64,
         });
 
         let operation = Operation {
@@ -3671,14 +3713,12 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = serde_json::json!({});
-
         let operation = Operation {
             op_type: "prelu".to_string(),
             input_operands: vec![input.id, slope.id],
             output_operand: Some(output_id),
             output_operands: Vec::new(),
-            attributes,
+            attributes: OperatorOptions::default(),
             label: None,
         };
 
@@ -3739,7 +3779,7 @@ impl PyMLGraphBuilder {
             input_operands: vec![a.id, b.id],
             output_operand: Some(output_id),
             output_operands: Vec::new(),
-            attributes: serde_json::json!({}),
+            attributes: OperatorOptions::default(),
             label: None,
         };
 
@@ -3770,7 +3810,7 @@ impl PyMLGraphBuilder {
             input_operands: vec![x.id],
             output_operand: Some(output_id),
             output_operands: Vec::new(),
-            attributes: serde_json::json!({}),
+            attributes: OperatorOptions::default(),
             label: None,
         };
 
@@ -3818,10 +3858,10 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        // Store parameters as JSON attributes
-        let attributes = serde_json::json!({
-            "axes": axes.unwrap_or_default(),
-            "keepDimensions": keep_dimensions,
+        let attributes = OperatorOptions::Reduce(MLReduceOptions {
+            label: String::new(),
+            axes,
+            keep_dimensions,
         });
 
         let operation = Operation {
