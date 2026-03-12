@@ -941,7 +941,7 @@ impl PyMLGraphBuilder {
         scale: Option<&PyMLOperand>,
         bias: Option<&PyMLOperand>,
         epsilon: f32,
-        axis: i32,
+        axis: u32,
     ) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_batch_normalization_shape;
 
@@ -972,7 +972,7 @@ impl PyMLGraphBuilder {
             label: String::new(),
             scale: scale.map(|s| s.id),
             bias: bias.map(|b| b.id),
-            axis: axis as u32,
+            axis,
             epsilon: epsilon as f64,
         });
 
@@ -1078,7 +1078,7 @@ impl PyMLGraphBuilder {
         scale: Option<&PyMLOperand>,
         bias: Option<&PyMLOperand>,
         epsilon: f32,
-        axes: Option<Vec<i32>>,
+        axes: Option<Vec<u32>>,
     ) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_layer_normalization_shape;
 
@@ -1107,7 +1107,7 @@ impl PyMLGraphBuilder {
 
         // When axes are omitted, infer them from scale/bias rank so ONNX axis aligns
         // with X.shape[axis:] for broadcast-compatible operands.
-        let norm_axes = if let Some(axes) = axes {
+        let norm_axes: Vec<u32> = if let Some(axes) = axes {
             axes
         } else {
             let input_rank = input.descriptor.static_or_max_shape().len();
@@ -1116,32 +1116,20 @@ impl PyMLGraphBuilder {
                 .or_else(|| bias.map(|b| b.descriptor.static_or_max_shape().len()));
 
             match param_rank {
-                Some(rank) if rank > 0 && rank <= input_rank => ((input_rank - rank)..input_rank)
-                    .map(|i| i as i32)
-                    .collect(),
-                _ => vec![-1],
+                Some(rank) if rank > 0 && rank <= input_rank => {
+                    ((input_rank - rank)..input_rank).map(|i| i as u32).collect()
+                }
+                _ => vec![(input_rank.saturating_sub(1)) as u32],
             }
         };
 
-        let input_rank = input.descriptor.static_or_max_shape().len();
         let attributes = OperatorOptions::LayerNormalization(MLLayerNormalizationOptions {
             label: String::new(),
             scale: scale.map(|s| s.id),
             bias: bias.map(|b| b.id),
             has_scale: Some(scale.is_some()),
             has_bias: Some(bias.is_some()),
-            axes: Some(
-                norm_axes
-                    .iter()
-                    .map(|&x| {
-                        if x >= 0 {
-                            x as u32
-                        } else {
-                            (input_rank as i32 + x) as u32
-                        }
-                    })
-                    .collect(),
-            ),
+            axes: Some(norm_axes),
             epsilon: epsilon as f64,
         });
 
@@ -2212,10 +2200,31 @@ impl PyMLGraphBuilder {
     ) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_slice_shape;
 
-        // Infer output shape
-        let output_shape =
+        let input_rank = input.descriptor.static_or_max_shape().len();
+        if starts.len() != sizes.len() {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "slice() requires starts.len() == sizes.len() (got {} and {})",
+                starts.len(),
+                sizes.len()
+            )));
+        }
+        // WebNN: for 0D input, starts and sizes must be length 0 (empty); that is a valid no-op.
+        if starts.is_empty() || sizes.is_empty() {
+            if input_rank != 0 {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "slice() requires non-empty starts and sizes when input rank is not 0",
+                ));
+            }
+            // 0D no-op: output shape is same as input
+        }
+
+        // Infer output shape (for 0D with empty starts/sizes, use input shape; else infer)
+        let output_shape = if input_rank == 0 && starts.is_empty() {
+            input.descriptor.static_or_max_shape()
+        } else {
             infer_slice_shape(&input.descriptor.static_or_max_shape(), &starts, &sizes)
-                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?
+        };
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
@@ -3054,7 +3063,7 @@ impl PyMLGraphBuilder {
         input: &PyMLOperand,
         indices: &PyMLOperand,
         updates: &PyMLOperand,
-        axis: i32,
+        axis: u32,
     ) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_scatter_elements_shape;
 
@@ -3077,7 +3086,7 @@ impl PyMLGraphBuilder {
 
         let attributes = OperatorOptions::ScatterElements(MLScatterOptions {
             label: String::new(),
-            axis: axis as u32,
+            axis,
         });
 
         let operation = Operation {
