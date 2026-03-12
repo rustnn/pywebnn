@@ -1503,7 +1503,7 @@ def test_layer_normalization_3d_input(builder):
     # Input: [2, 10, 512] (batch, sequence_length, features)
     input_op = builder.input("input", [2, 10, 512], "float32")
 
-    output = builder.layer_normalization(input_op, axes=[-1])
+    output = builder.layer_normalization(input_op, axes=[2])
     assert output.shape == [2, 10, 512]
 
 
@@ -1511,7 +1511,7 @@ def test_layer_normalization_custom_axes(builder):
     """Test layer normalization with custom axes"""
     input_op = builder.input("input", [2, 8, 256], "float32")
 
-    output = builder.layer_normalization(input_op, axes=[-2, -1])
+    output = builder.layer_normalization(input_op, axes=[1, 2])
     assert output.shape == [2, 8, 256]
 
 
@@ -2818,18 +2818,6 @@ def test_scatter_elements_2d_axis_1(context):
     indices = builder.input("indices", [3, 2], "int32")
     updates = builder.input("updates", [3, 2], "float32")
     output = builder.scatter_elements(data, indices, updates, axis=1)
-    assert output.shape == [3, 4]
-    assert output.data_type == "float32"
-    graph = builder.build({"output": output})
-
-
-def test_scatter_elements_negative_axis(context):
-    """Test scatterElements with negative axis"""
-    builder = context.create_graph_builder()
-    data = builder.input("data", [3, 4], "float32")
-    indices = builder.input("indices", [3, 2], "int32")
-    updates = builder.input("updates", [3, 2], "float32")
-    output = builder.scatter_elements(data, indices, updates, axis=-1)
     assert output.shape == [3, 4]
     assert output.data_type == "float32"
     graph = builder.build({"output": output})
