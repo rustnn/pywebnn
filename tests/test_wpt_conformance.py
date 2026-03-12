@@ -59,7 +59,7 @@ def load_test_cases_for_operation(operation: str) -> List[Dict[str, Any]]:
 def convert_numeric_value(value):
     """
     Convert numeric values from WPT test data to Python numbers.
-    Handles JavaScript bigint literals (ending with 'n') and other numeric strings.
+    Handles JavaScript bigint literals (ending with 'n'), Infinity/NaN, and other numeric strings.
 
     Args:
         value: The value to convert (can be int, float, str, or other)
@@ -74,6 +74,14 @@ def convert_numeric_value(value):
                 return int(value[:-1])
             except ValueError:
                 return float(value[:-1])
+        # Handle JavaScript-style special float strings (used in clamp and tensor data)
+        lower = value.lower()
+        if lower == "infinity" or lower == "+infinity":
+            return float("inf")
+        if lower == "-infinity":
+            return float("-inf")
+        if lower == "nan":
+            return float("nan")
         # Handle regular numeric strings
         try:
             # Try int first
