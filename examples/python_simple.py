@@ -37,7 +37,6 @@ def main():
 
     # Add operation
     sum_result = builder.add(x, y)
-    builder.gather(x,y, axis=-1)
     print(f"  x + y: {sum_result}")
 
     # ReLU activation
