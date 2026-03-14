@@ -197,7 +197,7 @@ def build_mobilenetv2_simple(builder, weights):
         x = builder.add(x, fc_bias)
 
     # Softmax
-    output = builder.softmax(x)
+    output = builder.softmax(x, axis=len(x.shape) - 1)
 
     return output
 

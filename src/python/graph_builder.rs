@@ -20,8 +20,8 @@ use rustnn::operator_options::{
     MLExpandOptions, MLGatherOptions, MLGemmOptions, MLHardSigmoidOptions, MLHardSwishOptions,
     MLInstanceNormalizationOptions, MLLayerNormalizationOptions, MLLeakyReluOptions, MLPadOptions,
     MLPool2dOptions, MLReduceOptions, MLReshapeOptions, MLScatterOptions, MLSliceOptions,
-    MLSplitOptions, MLSqueezeOptions, MLTileOptions, MLTransposeOptions, MLTriangularOptions,
-    MLUnsqueezeOptions, OperatorOptions,
+    MLSoftmaxOptions, MLSplitOptions, MLSqueezeOptions, MLTileOptions, MLTransposeOptions,
+    MLTriangularOptions, MLUnsqueezeOptions, OperatorOptions,
 };
 use rustnn::shape_inference::{broadcast_shapes, infer_matmul_shape, validate_reshape};
 use rustnn::validator::GraphValidator;
@@ -1175,8 +1175,57 @@ impl PyMLGraphBuilder {
     }
 
     /// Softmax activation
-    fn softmax(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
-        self.unary_op("softmax", x)
+    ///
+    /// Args:
+    ///     x: Input operand
+    ///     axis: Axis along which to normalize
+    ///
+    /// Returns:
+    ///     MLOperand: Output operand with the same shape as input
+    fn softmax(&mut self, x: &PyMLOperand, axis: u32) -> PyResult<PyMLOperand> {
+        let rank = x.descriptor.static_or_max_shape().len() as u32;
+        if rank == 0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "softmax input must have rank at least 1",
+            ));
+        }
+        if axis >= rank {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "Axis {} out of bounds for rank {}",
+                axis, rank
+            )));
+        }
+
+        let output_descriptor = x.descriptor.clone();
+
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        let operation = Operation {
+            op_type: "softmax".to_string(),
+            input_operands: vec![x.id],
+            output_operand: Some(output_id),
+            output_operands: Vec::new(),
+            attributes: OperatorOptions::Softmax(MLSoftmaxOptions {
+                label: String::new(),
+                axis,
+            }),
+            label: None,
+        };
+
+        self.operations.push(operation);
+
+        let output_operand = Operand {
+            descriptor: output_descriptor.clone(),
+            kind: OperandKind::Output,
+            name: None,
+        };
+        self.operands.push(output_operand);
+
+        let py_operand = PyMLOperand::new(output_id, output_descriptor, OperandKind::Output, None);
+        self.operand_map.insert(output_id, py_operand.clone());
+
+        Ok(py_operand)
     }
 
     // Element-wise operations - Basic math
@@ -2209,13 +2258,12 @@ impl PyMLGraphBuilder {
             )));
         }
         // WebNN: for 0D input, starts and sizes must be length 0 (empty); that is a valid no-op.
-        if (starts.is_empty() || sizes.is_empty())
-            && input_rank != 0 {
-                return Err(pyo3::exceptions::PyValueError::new_err(
-                    "slice() requires non-empty starts and sizes when input rank is not 0",
-                ));
-            }
-            // 0D no-op: output shape is same as input
+        if (starts.is_empty() || sizes.is_empty()) && input_rank != 0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "slice() requires non-empty starts and sizes when input rank is not 0",
+            ));
+        }
+        // 0D no-op: output shape is same as input
 
         // Infer output shape (for 0D with empty starts/sizes, use input shape; else infer)
         let output_shape = if input_rank == 0 && starts.is_empty() {

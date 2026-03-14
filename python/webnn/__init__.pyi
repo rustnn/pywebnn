@@ -305,7 +305,7 @@ class MLGraphBuilder:
         """Tanh activation"""
         ...
 
-    def softmax(self, x: MLOperand) -> MLOperand:
+    def softmax(self, x: MLOperand, axis: int) -> MLOperand:
         """Softmax activation"""
         ...
 

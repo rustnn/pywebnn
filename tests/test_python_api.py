@@ -142,7 +142,7 @@ def test_unary_operations(builder):
     assert tanh_out.shape == [2, 3]
 
     # Test softmax
-    softmax_out = builder.softmax(x)
+    softmax_out = builder.softmax(x, axis=1)
     assert softmax_out.shape == [2, 3]
 
 
@@ -152,6 +152,13 @@ def test_reshape_operation(builder):
     reshaped = builder.reshape(x, [3, 2])
     assert reshaped.shape == [3, 2]
     assert reshaped.data_type == "float32"
+
+
+def test_softmax_invalid_axis(builder):
+    """Test softmax rejects axes outside the input rank."""
+    x = builder.input("x", [2, 3], "float32")
+    with pytest.raises(ValueError, match="Axis 2 out of bounds for rank 2"):
+        builder.softmax(x, axis=2)
 
 
 def test_matmul_operation(builder):
@@ -323,7 +330,7 @@ def test_tanh_computation(context, builder):
 def test_softmax_computation(context, builder):
     """Test softmax activation with actual computation"""
     x = builder.input("x", [2, 3], "float32")
-    y = builder.softmax(x)
+    y = builder.softmax(x, axis=1)
     graph = builder.build({"y": y})
 
     x_data = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
@@ -335,7 +342,11 @@ def test_softmax_computation(context, builder):
     # Verify softmax output is in [0, 1] and sums to 1
     assert np.all(results["y"] >= 0)
     assert np.all(results["y"] <= 1)
-    # Note: Softmax normalization depends on axis, so we just check properties
+    np.testing.assert_allclose(results["y"].sum(axis=1), np.ones(2, dtype=np.float32), rtol=1e-5)
+
+    shifted = x_data - np.max(x_data, axis=1, keepdims=True)
+    expected = np.exp(shifted) / np.sum(np.exp(shifted), axis=1, keepdims=True)
+    np.testing.assert_allclose(results["y"], expected, rtol=1e-5)
 
 
 # ============================================================================

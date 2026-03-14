@@ -1033,7 +1033,7 @@ Sigmoid activation: `1 / (1 + exp(-x))`
 
 Hyperbolic tangent activation
 
-#### `softmax(x)`
+#### `softmax(x, axis)`
 
 Softmax activation (normalizes to probability distribution)
 
@@ -1045,7 +1045,7 @@ x = builder.input("x", [1, 10], "float32")
 relu_out = builder.relu(x)
 sigmoid_out = builder.sigmoid(x)
 tanh_out = builder.tanh(x)
-softmax_out = builder.softmax(x)
+softmax_out = builder.softmax(x, axis=1)
 ```
 
 ### Shape Operations

@@ -255,14 +255,13 @@ def call_builder_method(builder, op_name: str, args: Dict[str, Any]) -> Any:
         return method(input_op, new_shape)
 
     elif op_name == "softmax":
-        # softmax(input, axis=None)
+        # softmax(input, axis)
         input_op = args.get("input", args.get("x"))
         axis = args.get("axis")
         method = getattr(builder, "softmax")
-        if axis is not None:
-            # axis parameter not yet supported, skip for now
-            raise NotImplementedError(f"softmax with axis={axis} not yet supported")
-        return method(input_op)
+        if axis is None:
+            raise ValueError("softmax requires an axis")
+        return method(input_op, axis)
 
     # Map operation names to builder method names (WPT uses camelCase)
     method_name_map = {
