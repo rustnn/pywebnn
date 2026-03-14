@@ -159,7 +159,7 @@ def build_simple_classifier(builder, num_classes=1000):
     logits = builder.gemm(flattened, fc_weights, b_transpose=True)
 
     # Softmax for class probabilities
-    output = builder.softmax(logits)
+    output = builder.softmax(logits, axis=len(logits.shape) - 1)
 
     return output
 

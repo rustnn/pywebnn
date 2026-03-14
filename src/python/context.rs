@@ -124,6 +124,35 @@ impl PyMLContext {
         inputs: &Bound<'_, PyDict>,
         _outputs: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Py<PyDict>> {
+        // Validate slice ops: starts/sizes length must match; empty only allowed for 0D input (no-op).
+        for (idx, op) in graph.graph_info.operations.iter().enumerate() {
+            if op.op_type.eq_ignore_ascii_case("slice") {
+                if let Some(o) = op.attributes.as_slice() {
+                    if o.starts.len() != o.sizes.len() {
+                        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                            "Slice operation at index {} has mismatched starts/sizes (starts.len()={}, sizes.len()={}).",
+                            idx, o.starts.len(), o.sizes.len()
+                        )));
+                    }
+                    let both_empty = o.starts.is_empty() && o.sizes.is_empty();
+                    if both_empty {
+                        let input_rank = op
+                            .input_operands
+                            .first()
+                            .and_then(|&id| graph.graph_info.operand(id))
+                            .map(|operand| operand.descriptor.static_or_max_shape().len())
+                            .unwrap_or(usize::MAX);
+                        if input_rank != 0 {
+                            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                                "Slice operation at index {} has empty starts/sizes but input rank is {} (only 0D no-op slice may have empty starts/sizes).",
+                                idx, input_rank
+                            )));
+                        }
+                    }
+                }
+            }
+        }
+
         // Route to appropriate backend based on context's backend selection
         match self.backend {
             Backend::OnnxCpu | Backend::OnnxGpu => self.compute_onnx(py, graph, inputs),
