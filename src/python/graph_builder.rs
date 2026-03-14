@@ -2209,14 +2209,13 @@ impl PyMLGraphBuilder {
             )));
         }
         // WebNN: for 0D input, starts and sizes must be length 0 (empty); that is a valid no-op.
-        if starts.is_empty() || sizes.is_empty() {
-            if input_rank != 0 {
+        if (starts.is_empty() || sizes.is_empty())
+            && input_rank != 0 {
                 return Err(pyo3::exceptions::PyValueError::new_err(
                     "slice() requires non-empty starts and sizes when input rank is not 0",
                 ));
             }
             // 0D no-op: output shape is same as input
-        }
 
         // Infer output shape (for 0D with empty starts/sizes, use input shape; else infer)
         let output_shape = if input_rank == 0 && starts.is_empty() {
