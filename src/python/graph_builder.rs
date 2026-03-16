@@ -2289,7 +2289,7 @@ impl PyMLGraphBuilder {
         let attributes = OperatorOptions::Slice(MLSliceOptions {
             label: String::new(),
             starts,
-            sizes,
+            sizes: sizes.iter().map(|&d| MLDimension::Static(d)).collect(),
             strides: strides_vec,
         });
 
