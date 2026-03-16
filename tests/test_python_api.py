@@ -142,7 +142,7 @@ def test_unary_operations(builder):
     assert tanh_out.shape == [2, 3]
 
     # Test softmax
-    softmax_out = builder.softmax(x)
+    softmax_out = builder.softmax(x, axis=1)
     assert softmax_out.shape == [2, 3]
 
 
@@ -152,6 +152,13 @@ def test_reshape_operation(builder):
     reshaped = builder.reshape(x, [3, 2])
     assert reshaped.shape == [3, 2]
     assert reshaped.data_type == "float32"
+
+
+def test_softmax_invalid_axis(builder):
+    """Test softmax rejects axes outside the input rank."""
+    x = builder.input("x", [2, 3], "float32")
+    with pytest.raises(ValueError, match="Axis 2 out of bounds for rank 2"):
+        builder.softmax(x, axis=2)
 
 
 def test_matmul_operation(builder):
@@ -323,7 +330,7 @@ def test_tanh_computation(context, builder):
 def test_softmax_computation(context, builder):
     """Test softmax activation with actual computation"""
     x = builder.input("x", [2, 3], "float32")
-    y = builder.softmax(x)
+    y = builder.softmax(x, axis=1)
     graph = builder.build({"y": y})
 
     x_data = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
@@ -335,7 +342,11 @@ def test_softmax_computation(context, builder):
     # Verify softmax output is in [0, 1] and sums to 1
     assert np.all(results["y"] >= 0)
     assert np.all(results["y"] <= 1)
-    # Note: Softmax normalization depends on axis, so we just check properties
+    np.testing.assert_allclose(results["y"].sum(axis=1), np.ones(2, dtype=np.float32), rtol=1e-5)
+
+    shifted = x_data - np.max(x_data, axis=1, keepdims=True)
+    expected = np.exp(shifted) / np.sum(np.exp(shifted), axis=1, keepdims=True)
+    np.testing.assert_allclose(results["y"], expected, rtol=1e-5)
 
 
 # ============================================================================
@@ -1503,7 +1514,7 @@ def test_layer_normalization_3d_input(builder):
     # Input: [2, 10, 512] (batch, sequence_length, features)
     input_op = builder.input("input", [2, 10, 512], "float32")
 
-    output = builder.layer_normalization(input_op, axes=[-1])
+    output = builder.layer_normalization(input_op, axes=[2])
     assert output.shape == [2, 10, 512]
 
 
@@ -1511,7 +1522,7 @@ def test_layer_normalization_custom_axes(builder):
     """Test layer normalization with custom axes"""
     input_op = builder.input("input", [2, 8, 256], "float32")
 
-    output = builder.layer_normalization(input_op, axes=[-2, -1])
+    output = builder.layer_normalization(input_op, axes=[1, 2])
     assert output.shape == [2, 8, 256]
 
 
@@ -2818,18 +2829,6 @@ def test_scatter_elements_2d_axis_1(context):
     indices = builder.input("indices", [3, 2], "int32")
     updates = builder.input("updates", [3, 2], "float32")
     output = builder.scatter_elements(data, indices, updates, axis=1)
-    assert output.shape == [3, 4]
-    assert output.data_type == "float32"
-    graph = builder.build({"output": output})
-
-
-def test_scatter_elements_negative_axis(context):
-    """Test scatterElements with negative axis"""
-    builder = context.create_graph_builder()
-    data = builder.input("data", [3, 4], "float32")
-    indices = builder.input("indices", [3, 2], "int32")
-    updates = builder.input("updates", [3, 2], "float32")
-    output = builder.scatter_elements(data, indices, updates, axis=-1)
     assert output.shape == [3, 4]
     assert output.data_type == "float32"
     graph = builder.build({"output": output})

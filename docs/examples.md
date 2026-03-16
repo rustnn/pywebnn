@@ -413,7 +413,7 @@ class SimpleClassifier:
         logits = builder.add(logits, b2)
 
         # Softmax
-        output = builder.softmax(logits)
+        output = builder.softmax(logits, axis=len(logits.shape) - 1)
 
         # Build
         self.graph = builder.build({"probabilities": output})

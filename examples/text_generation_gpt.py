@@ -167,7 +167,7 @@ class SimpleTransformerLM:
         logits = builder.add(logits, b_out)
 
         # Apply softmax to get probabilities
-        probs = builder.softmax(logits)
+        probs = builder.softmax(logits, axis=len(logits.shape) - 1)
 
         return probs
 

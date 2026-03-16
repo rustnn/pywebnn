@@ -216,7 +216,7 @@ def build_complete_mobilenetv2(builder, weights):
     x = builder.add(x, fc_b)
 
     # Softmax
-    output = builder.softmax(x)
+    output = builder.softmax(x, axis=len(x.shape) - 1)
 
     print("   ✓ Complete MobileNetV2 graph built!")
     return output

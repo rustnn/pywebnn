@@ -59,7 +59,7 @@ def load_test_cases_for_operation(operation: str) -> List[Dict[str, Any]]:
 def convert_numeric_value(value):
     """
     Convert numeric values from WPT test data to Python numbers.
-    Handles JavaScript bigint literals (ending with 'n') and other numeric strings.
+    Handles JavaScript bigint literals (ending with 'n'), Infinity/NaN, and other numeric strings.
 
     Args:
         value: The value to convert (can be int, float, str, or other)
@@ -74,6 +74,14 @@ def convert_numeric_value(value):
                 return int(value[:-1])
             except ValueError:
                 return float(value[:-1])
+        # Handle JavaScript-style special float strings (used in clamp and tensor data)
+        lower = value.lower()
+        if lower == "infinity" or lower == "+infinity":
+            return float("inf")
+        if lower == "-infinity":
+            return float("-inf")
+        if lower == "nan":
+            return float("nan")
         # Handle regular numeric strings
         try:
             # Try int first
@@ -247,14 +255,13 @@ def call_builder_method(builder, op_name: str, args: Dict[str, Any]) -> Any:
         return method(input_op, new_shape)
 
     elif op_name == "softmax":
-        # softmax(input, axis=None)
+        # softmax(input, axis)
         input_op = args.get("input", args.get("x"))
         axis = args.get("axis")
         method = getattr(builder, "softmax")
-        if axis is not None:
-            # axis parameter not yet supported, skip for now
-            raise NotImplementedError(f"softmax with axis={axis} not yet supported")
-        return method(input_op)
+        if axis is None:
+            raise ValueError("softmax requires an axis")
+        return method(input_op, axis)
 
     # Map operation names to builder method names (WPT uses camelCase)
     method_name_map = {

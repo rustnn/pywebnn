@@ -213,7 +213,7 @@ class EnhancedTransformerLM:
         # Output projection
         logits = builder.gemm(out, W_out)
         logits = builder.add(logits, b_out)
-        probs = builder.softmax(logits)
+        probs = builder.softmax(logits, axis=len(logits.shape) - 1)
 
         # Note: new_k and new_v are returned separately for caching
         return probs  # In full implementation, return (new_k, new_v, probs)

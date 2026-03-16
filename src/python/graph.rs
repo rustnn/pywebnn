@@ -179,7 +179,7 @@ impl PyMLGraph {
                 continue;
             }
 
-            let axes = op.attributes.get("axes").and_then(parse_i64_array);
+            let axes = op.attributes.get("axes").and_then(|v| parse_i64_array(&v));
             let Some(axes) = axes else {
                 continue;
             };
