@@ -432,9 +432,7 @@ impl PyMLGraph {
         Self::resolve_manifest_weights(graph_json, manifest_path, weights_path)
     }
 
-    fn resolve_safetensors_path<'a>(
-        weights_path: Option<&'a str>,
-    ) -> Option<&'a str> {
+    fn resolve_safetensors_path<'a>(weights_path: Option<&'a str>) -> Option<&'a str> {
         fn is_safetensors(path: &str) -> bool {
             path.ends_with(".safetensors") || path.ends_with(".safetensor")
         }
@@ -473,7 +471,9 @@ impl PyMLGraph {
                     .or_else(|_| {
                         sanitized_map
                             .get(r#ref)
-                            .ok_or_else(|| safetensors::SafeTensorError::TensorNotFound(r#ref.clone()))
+                            .ok_or_else(|| {
+                                safetensors::SafeTensorError::TensorNotFound(r#ref.clone())
+                            })
                             .and_then(|orig| st.tensor(orig))
                     })
                     .map_err(|e| {
