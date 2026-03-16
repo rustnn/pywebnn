@@ -432,7 +432,7 @@ impl PyMLGraph {
         Self::resolve_manifest_weights(graph_json, manifest_path, weights_path)
     }
 
-    fn resolve_safetensors_path<'a>(weights_path: Option<&'a str>) -> Option<&'a str> {
+    fn resolve_safetensors_path(weights_path: Option<&str>) -> Option<&str> {
         fn is_safetensors(path: &str) -> bool {
             path.ends_with(".safetensors") || path.ends_with(".safetensor")
         }
