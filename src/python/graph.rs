@@ -9,6 +9,7 @@ use pyo3::exceptions::PyIOError;
 use pyo3::prelude::*;
 use rustnn::graph::GraphInfo;
 use rustnn::webnn_json;
+use safetensors::SafeTensors;
 use std::fs;
 use std::path::Path;
 
@@ -355,7 +356,8 @@ impl PyMLGraph {
     /// Args:
     ///     path: File path to load the graph from (e.g., "model.webnn")
     ///     manifest_path: Optional path to manifest.json file for external weights
-    ///     weights_path: Optional path to weights file for external weights
+    ///     weights_path: Optional path to weights file for external weights, or
+    ///         a single .safetensors file (when manifest_path is not provided)
     ///
     /// Returns:
     ///     MLGraph: The loaded graph
@@ -367,6 +369,7 @@ impl PyMLGraph {
     /// Example:
     ///     graph = MLGraph.load("my_model.webnn")
     ///     graph = MLGraph.load("model.webnn", manifest_path="manifest.json", weights_path="model.weights")
+    ///     graph = MLGraph.load("model.webnn", weights_path="model.safetensors")
     #[staticmethod]
     #[pyo3(signature = (path, manifest_path=None, weights_path=None))]
     fn load(path: &str, manifest_path: Option<&str>, weights_path: Option<&str>) -> PyResult<Self> {
@@ -413,8 +416,80 @@ impl PyMLGraph {
     ///
     /// This function loads manifest and weights files and resolves all weight references to inline bytes.
     ///
-    /// If manifest_path and weights_path are not provided, returns immediately (no external weights).
+    /// If weights_path are not provided, returns immediately (no external weights).
     fn resolve_external_weights(
+        graph_json: &mut webnn_graph::ast::GraphJson,
+        manifest_path: Option<&str>,
+        weights_path: Option<&str>,
+    ) -> PyResult<()> {
+        if let Some(st_path) = Self::resolve_safetensors_path(weights_path) {
+            return Self::resolve_safetensors_weights(graph_json, st_path);
+        }
+
+        Self::resolve_manifest_weights(graph_json, manifest_path, weights_path)
+    }
+
+    fn resolve_safetensors_path(weights_path: Option<&str>) -> Option<&str> {
+        fn is_safetensors(path: &str) -> bool {
+            path.ends_with(".safetensors") || path.ends_with(".safetensor")
+        }
+
+        if let Some(p) = weights_path {
+            if is_safetensors(p) {
+                return Some(p);
+            }
+        }
+        None
+    }
+
+    fn resolve_safetensors_weights(
+        graph_json: &mut webnn_graph::ast::GraphJson,
+        safetensors_path: &str,
+    ) -> PyResult<()> {
+        use std::collections::HashMap;
+        use webnn_graph::ast::ConstInit;
+
+        let st_bytes = fs::read(safetensors_path)
+            .map_err(|e| PyIOError::new_err(format!("Failed to read safetensors: {}", e)))?;
+        let st = SafeTensors::deserialize(&st_bytes)
+            .map_err(|e| PyIOError::new_err(format!("Failed to parse safetensors: {}", e)))?;
+
+        // Map sanitized key -> original key to support refs where "." and "::"
+        // were replaced by "_" and "__".
+        let mut sanitized_map: HashMap<String, String> = HashMap::new();
+        for key in st.names() {
+            sanitized_map.insert(key.replace("::", "__").replace('.', "_"), key.to_string());
+        }
+
+        for (_name, const_decl) in graph_json.consts.iter_mut() {
+            if let ConstInit::Weights { r#ref } = &const_decl.init {
+                let tensor_view = st
+                    .tensor(r#ref)
+                    .or_else(|_| {
+                        sanitized_map
+                            .get(r#ref)
+                            .ok_or_else(|| {
+                                safetensors::SafeTensorError::TensorNotFound(r#ref.clone())
+                            })
+                            .and_then(|orig| st.tensor(orig))
+                    })
+                    .map_err(|e| {
+                        PyIOError::new_err(format!(
+                            "Weight '{}' not found in safetensors '{}': {}",
+                            r#ref, safetensors_path, e
+                        ))
+                    })?;
+
+                const_decl.init = ConstInit::InlineBytes {
+                    bytes: tensor_view.data().to_vec(),
+                };
+            }
+        }
+
+        Ok(())
+    }
+
+    fn resolve_manifest_weights(
         graph_json: &mut webnn_graph::ast::GraphJson,
         manifest_path: Option<&str>,
         weights_path: Option<&str>,
