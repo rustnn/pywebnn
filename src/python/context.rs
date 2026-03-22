@@ -195,7 +195,7 @@ impl PyMLContext {
         // Check if we have any device tensors
         let mut has_device_tensors = false;
         for (_, value) in inputs.iter() {
-            if value.downcast::<PyMLDeviceTensor>().is_ok() {
+            if value.cast::<PyMLDeviceTensor>().is_ok() {
                 has_device_tensors = true;
                 break;
             }
@@ -203,7 +203,7 @@ impl PyMLContext {
 
         if !has_device_tensors {
             for (_, value) in outputs.iter() {
-                if value.downcast::<PyMLDeviceTensor>().is_ok() {
+                if value.cast::<PyMLDeviceTensor>().is_ok() {
                     has_device_tensors = true;
                     break;
                 }
@@ -228,9 +228,9 @@ impl PyMLContext {
         outputs: &Bound<'_, PyDict>,
     ) -> PyResult<()> {
         // Convert MLTensor inputs to numpy arrays
-        let numpy_inputs = PyDict::new_bound(py);
+        let numpy_inputs = PyDict::new(py);
         for (key, value) in inputs.iter() {
-            let tensor = value.downcast::<PyMLTensor>()?;
+            let tensor = value.cast::<PyMLTensor>()?;
             let numpy_array = self.read_tensor(py, &tensor.borrow())?;
             numpy_inputs.set_item(key, numpy_array)?;
         }
@@ -240,7 +240,7 @@ impl PyMLContext {
 
         // Write results to output tensors
         for (key, value) in outputs.iter() {
-            let tensor = value.downcast::<PyMLTensor>()?;
+            let tensor = value.cast::<PyMLTensor>()?;
             if let Some(result) = results.bind(py).get_item(&key)? {
                 self.write_tensor(py, &tensor.borrow(), result.into())?;
             }
@@ -268,12 +268,12 @@ impl PyMLContext {
         // and will be implemented in a future update
 
         // Convert inputs (device or host tensors) to numpy
-        let numpy_inputs = PyDict::new_bound(py);
+        let numpy_inputs = PyDict::new(py);
         for (key, value) in inputs.iter() {
-            if let Ok(device_tensor) = value.downcast::<PyMLDeviceTensor>() {
+            if let Ok(device_tensor) = value.cast::<PyMLDeviceTensor>() {
                 let numpy_array = device_tensor.borrow().read_data(py)?;
                 numpy_inputs.set_item(key, numpy_array)?;
-            } else if let Ok(host_tensor) = value.downcast::<PyMLTensor>() {
+            } else if let Ok(host_tensor) = value.cast::<PyMLTensor>() {
                 let numpy_array = self.read_tensor(py, &host_tensor.borrow())?;
                 numpy_inputs.set_item(key, numpy_array)?;
             } else {
@@ -288,11 +288,11 @@ impl PyMLContext {
 
         // Write results to output tensors (device or host)
         for (key, value) in outputs.iter() {
-            if let Ok(device_tensor) = value.downcast::<PyMLDeviceTensor>() {
+            if let Ok(device_tensor) = value.cast::<PyMLDeviceTensor>() {
                 if let Some(result) = results.bind(py).get_item(&key)? {
                     device_tensor.borrow_mut().write_data(py, result.into())?;
                 }
-            } else if let Ok(host_tensor) = value.downcast::<PyMLTensor>() {
+            } else if let Ok(host_tensor) = value.cast::<PyMLTensor>() {
                 if let Some(result) = results.bind(py).get_item(&key)? {
                     self.write_tensor(py, &host_tensor.borrow(), result.into())?;
                 }
@@ -413,7 +413,7 @@ impl PyMLContext {
             })?;
 
         // Return empty dict for now (actual implementation would return outputs)
-        let result = PyDict::new_bound(py);
+        let result = PyDict::new(py);
         Ok(result.into())
     }
 
@@ -611,10 +611,14 @@ impl PyMLContext {
     ///
     /// Raises:
     ///     RuntimeError: If tensor is not readable or has been destroyed
-    fn read_tensor(&self, py: Python, tensor: &PyMLTensor) -> PyResult<PyObject> {
-        let numpy = py.import_bound("numpy")?;
+    fn read_tensor<'py>(
+        &self,
+        py: Python<'py>,
+        tensor: &PyMLTensor,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let numpy = py.import("numpy")?;
         let data = tensor.get_data()?; // Now returns PyResult
-        let shape_tuple = pyo3::types::PyTuple::new_bound(
+        let shape_tuple = pyo3::types::PyTuple::new(
             py,
             tensor
                 .tensor_descriptor
@@ -622,12 +626,12 @@ impl PyMLContext {
                 .shape
                 .iter()
                 .map(|d| i64::from(get_static_or_max_size(d))),
-        );
+        )?;
 
         let array = numpy.call_method1("array", (data,))?;
         let reshaped = array.call_method1("reshape", (shape_tuple,))?;
 
-        Ok(reshaped.into())
+        Ok(reshaped)
     }
 
     /// Write data from a numpy array into a tensor
@@ -641,8 +645,8 @@ impl PyMLContext {
     /// Raises:
     ///     RuntimeError: If tensor is not writable or has been destroyed
     ///     ValueError: If data shape doesn't match tensor shape
-    fn write_tensor(&self, py: Python, tensor: &PyMLTensor, data: PyObject) -> PyResult<()> {
-        let numpy = py.import_bound("numpy")?;
+    fn write_tensor(&self, py: Python, tensor: &PyMLTensor, data: Bound<PyAny>) -> PyResult<()> {
+        let numpy = py.import("numpy")?;
 
         // Convert to numpy array
         let array = numpy.call_method1("asarray", (data,))?;
@@ -710,7 +714,7 @@ impl PyMLContext {
     ///     >>> print(limits['input']['dataTypes'])
     ///     ['float32', 'float16', 'int32', ...]
     fn op_support_limits(&self, py: Python) -> PyResult<Py<PyDict>> {
-        let result = PyDict::new_bound(py);
+        let result = PyDict::new(py);
 
         // Helper function to create data type lists
         let create_float_types = || -> Vec<&str> { vec!["float32", "float16"] };
@@ -723,7 +727,7 @@ impl PyMLContext {
 
         // Helper function to create rank range
         let create_rank_range = |py: Python| -> PyResult<Py<PyDict>> {
-            let rank = PyDict::new_bound(py);
+            let rank = PyDict::new(py);
             rank.set_item("min", 0)?;
             rank.set_item("max", 4)?; // Support up to 4D tensors
             Ok(rank.into())
@@ -731,7 +735,7 @@ impl PyMLContext {
 
         // Helper function to create tensor limits
         let create_tensor_limits = |py: Python, float_only: bool| -> PyResult<Py<PyDict>> {
-            let limits = PyDict::new_bound(py);
+            let limits = PyDict::new(py);
             let types = if float_only {
                 create_float_types()
             } else {
@@ -744,7 +748,7 @@ impl PyMLContext {
 
         // Helper function to create single input limits
         let create_single_input_limits = |py: Python| -> PyResult<Py<PyDict>> {
-            let limits = PyDict::new_bound(py);
+            let limits = PyDict::new(py);
             limits.set_item("input", create_tensor_limits(py, true)?)?;
             limits.set_item("output", create_tensor_limits(py, true)?)?;
             Ok(limits.into())
@@ -752,7 +756,7 @@ impl PyMLContext {
 
         // Helper function to create binary limits
         let create_binary_limits = |py: Python| -> PyResult<Py<PyDict>> {
-            let limits = PyDict::new_bound(py);
+            let limits = PyDict::new(py);
             limits.set_item("a", create_tensor_limits(py, true)?)?;
             limits.set_item("b", create_tensor_limits(py, true)?)?;
             limits.set_item("output", create_tensor_limits(py, true)?)?;
@@ -835,7 +839,7 @@ impl PyMLContext {
         result.set_item("atanh", create_single_input_limits(py)?)?;
 
         // Type conversion
-        let cast_limits = PyDict::new_bound(py);
+        let cast_limits = PyDict::new(py);
         cast_limits.set_item("input", create_tensor_limits(py, false)?)?;
         cast_limits.set_item("output", create_tensor_limits(py, false)?)?;
         result.set_item("cast", cast_limits)?;
@@ -850,26 +854,26 @@ impl PyMLContext {
         result.set_item("tile", create_single_input_limits(py)?)?;
 
         // Concat
-        let concat_limits = PyDict::new_bound(py);
+        let concat_limits = PyDict::new(py);
         concat_limits.set_item("inputs", create_tensor_limits(py, true)?)?;
         concat_limits.set_item("output", create_tensor_limits(py, true)?)?;
         result.set_item("concat", concat_limits)?;
 
         // Split
-        let split_limits = PyDict::new_bound(py);
+        let split_limits = PyDict::new(py);
         split_limits.set_item("input", create_tensor_limits(py, true)?)?;
         split_limits.set_item("outputs", create_tensor_limits(py, true)?)?;
         result.set_item("split", split_limits)?;
 
         // Convolution
-        let conv2d_limits = PyDict::new_bound(py);
+        let conv2d_limits = PyDict::new(py);
         conv2d_limits.set_item("input", create_tensor_limits(py, true)?)?;
         conv2d_limits.set_item("filter", create_tensor_limits(py, true)?)?;
         conv2d_limits.set_item("bias", create_tensor_limits(py, true)?)?;
         conv2d_limits.set_item("output", create_tensor_limits(py, true)?)?;
         result.set_item("conv2d", conv2d_limits)?;
 
-        let conv_transpose_limits = PyDict::new_bound(py);
+        let conv_transpose_limits = PyDict::new(py);
         conv_transpose_limits.set_item("input", create_tensor_limits(py, true)?)?;
         conv_transpose_limits.set_item("filter", create_tensor_limits(py, true)?)?;
         conv_transpose_limits.set_item("bias", create_tensor_limits(py, true)?)?;
@@ -877,14 +881,14 @@ impl PyMLContext {
         result.set_item("convTranspose2d", conv_transpose_limits)?;
 
         // Pooling
-        let pool2d_limits = PyDict::new_bound(py);
+        let pool2d_limits = PyDict::new(py);
         pool2d_limits.set_item("input", create_tensor_limits(py, true)?)?;
         pool2d_limits.set_item("output", create_tensor_limits(py, true)?)?;
         result.set_item("averagePool2d", pool2d_limits.clone())?;
         result.set_item("maxPool2d", pool2d_limits)?;
 
         // Normalization
-        let batch_norm_limits = PyDict::new_bound(py);
+        let batch_norm_limits = PyDict::new(py);
         batch_norm_limits.set_item("input", create_tensor_limits(py, true)?)?;
         batch_norm_limits.set_item("mean", create_tensor_limits(py, true)?)?;
         batch_norm_limits.set_item("variance", create_tensor_limits(py, true)?)?;
@@ -893,7 +897,7 @@ impl PyMLContext {
         batch_norm_limits.set_item("output", create_tensor_limits(py, true)?)?;
         result.set_item("batchNormalization", batch_norm_limits)?;
 
-        let norm_limits = PyDict::new_bound(py);
+        let norm_limits = PyDict::new(py);
         norm_limits.set_item("input", create_tensor_limits(py, true)?)?;
         norm_limits.set_item("scale", create_tensor_limits(py, true)?)?;
         norm_limits.set_item("bias", create_tensor_limits(py, true)?)?;
@@ -914,7 +918,7 @@ impl PyMLContext {
         result.set_item("reduceSumSquare", create_single_input_limits(py)?)?;
 
         // GEMM
-        let gemm_limits = PyDict::new_bound(py);
+        let gemm_limits = PyDict::new(py);
         gemm_limits.set_item("a", create_tensor_limits(py, true)?)?;
         gemm_limits.set_item("b", create_tensor_limits(py, true)?)?;
         gemm_limits.set_item("c", create_tensor_limits(py, true)?)?;
@@ -922,21 +926,21 @@ impl PyMLContext {
         result.set_item("gemm", gemm_limits)?;
 
         // ArgMax/ArgMin
-        let arg_limits = PyDict::new_bound(py);
+        let arg_limits = PyDict::new(py);
         arg_limits.set_item("input", create_tensor_limits(py, true)?)?;
         arg_limits.set_item("output", create_tensor_limits(py, false)?)?; // Outputs int64/uint64
         result.set_item("argMax", arg_limits.clone())?;
         result.set_item("argMin", arg_limits)?;
 
         // Gather operations
-        let gather_limits = PyDict::new_bound(py);
+        let gather_limits = PyDict::new(py);
         gather_limits.set_item("input", create_tensor_limits(py, true)?)?;
         gather_limits.set_item("indices", create_tensor_limits(py, false)?)?;
         gather_limits.set_item("output", create_tensor_limits(py, true)?)?;
         result.set_item("gather", gather_limits)?;
 
         // Scatter operations
-        let scatter_limits = PyDict::new_bound(py);
+        let scatter_limits = PyDict::new(py);
         scatter_limits.set_item("input", create_tensor_limits(py, true)?)?;
         scatter_limits.set_item("indices", create_tensor_limits(py, false)?)?;
         scatter_limits.set_item("updates", create_tensor_limits(py, true)?)?;
@@ -945,7 +949,7 @@ impl PyMLContext {
         result.set_item("scatterND", scatter_limits)?;
 
         // Where
-        let where_limits = PyDict::new_bound(py);
+        let where_limits = PyDict::new(py);
         where_limits.set_item("condition", create_tensor_limits(py, false)?)?;
         where_limits.set_item("trueValue", create_tensor_limits(py, true)?)?;
         where_limits.set_item("falseValue", create_tensor_limits(py, true)?)?;
@@ -956,14 +960,14 @@ impl PyMLContext {
         result.set_item("pad", create_single_input_limits(py)?)?;
 
         // Quantization
-        let quant_limits = PyDict::new_bound(py);
+        let quant_limits = PyDict::new(py);
         quant_limits.set_item("input", create_tensor_limits(py, true)?)?;
         quant_limits.set_item("scale", create_tensor_limits(py, true)?)?;
         quant_limits.set_item("zeroPoint", create_tensor_limits(py, false)?)?;
         quant_limits.set_item("output", create_tensor_limits(py, false)?)?;
         result.set_item("quantizeLinear", quant_limits.clone())?;
 
-        let dequant_limits = PyDict::new_bound(py);
+        let dequant_limits = PyDict::new(py);
         dequant_limits.set_item("input", create_tensor_limits(py, false)?)?;
         dequant_limits.set_item("scale", create_tensor_limits(py, true)?)?;
         dequant_limits.set_item("zeroPoint", create_tensor_limits(py, false)?)?;
@@ -982,7 +986,7 @@ impl PyMLContext {
     /// were compiled into the wheel, and whether the selected backend is actually
     /// available (otherwise the fallback path returns zeros).
     fn backend_info(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
-        let info = PyDict::new_bound(py);
+        let info = PyDict::new(py);
 
         let backend = match self.backend {
             Backend::OnnxCpu => "onnx_cpu",
@@ -1014,7 +1018,7 @@ impl PyMLContext {
         info.set_item("backend", backend)?;
         info.set_item("accelerated_available", self.accelerated_available)?;
         info.set_item("compiled_features", {
-            let compiled = PyDict::new_bound(py);
+            let compiled = PyDict::new(py);
             compiled.set_item("onnx_runtime", onnx_compiled)?;
             compiled.set_item("coreml_runtime", coreml_compiled)?;
             compiled.set_item("trtx_runtime", trtx_compiled)?;
@@ -1144,7 +1148,7 @@ impl PyMLContext {
         })?;
 
         // Convert Python inputs to OnnxInput structs
-        let numpy = py.import_bound("numpy")?;
+        let numpy = py.import("numpy")?;
         let mut onnx_inputs = Vec::new();
 
         for input_id in &graph.graph_info.input_operands {
@@ -1271,10 +1275,10 @@ impl PyMLContext {
         })?;
 
         // Convert outputs back to numpy arrays
-        let result = PyDict::new_bound(py);
+        let result = PyDict::new(py);
         for output in onnx_outputs {
             let shape_tuple =
-                pyo3::types::PyTuple::new_bound(py, output.shape.iter().map(|&d| d as i64));
+                pyo3::types::PyTuple::new(py, output.shape.iter().map(|&d| d as i64))?;
             let array = numpy.call_method1("array", (output.data,))?;
             let reshaped = array.call_method1("reshape", (shape_tuple,))?;
             result.set_item(output.name, reshaped)?;
@@ -1313,7 +1317,7 @@ impl PyMLContext {
         })?;
 
         // Convert Python inputs to CoremlInput structs
-        let numpy = py.import_bound("numpy")?;
+        let numpy = py.import("numpy")?;
         let mut coreml_inputs = Vec::new();
 
         for input_id in &graph.graph_info.input_operands {
@@ -1415,7 +1419,7 @@ impl PyMLContext {
             })?;
 
         // Convert outputs back to numpy arrays
-        let result = PyDict::new_bound(py);
+        let result = PyDict::new(py);
         for output in outputs {
             // Check if original graph output was scalar (0D)
             // Find the corresponding output operand in the graph
@@ -1436,7 +1440,7 @@ impl PyMLContext {
                 }
             }
 
-            let shape_tuple = pyo3::types::PyTuple::new_bound(py, original_shape.iter().copied());
+            let shape_tuple = pyo3::types::PyTuple::new(py, original_shape.iter().copied())?;
             let array = numpy.call_method1("array", (output.data,))?;
             let reshaped = array.call_method1("reshape", (shape_tuple,))?;
             result.set_item(output.name, reshaped)?;
@@ -1475,7 +1479,7 @@ impl PyMLContext {
         })?;
 
         // Convert Python inputs to TrtxInput structs
-        let numpy = py.import_bound("numpy")?;
+        let numpy = py.import("numpy")?;
         let mut trtx_inputs = Vec::new();
 
         for input_id in &graph.graph_info.input_operands {
@@ -1535,10 +1539,9 @@ impl PyMLContext {
         })?;
 
         // Convert outputs back to numpy arrays
-        let result = PyDict::new_bound(py);
+        let result = PyDict::new(py);
         for output in trtx_outputs {
-            let shape_tuple =
-                pyo3::types::PyTuple::new_bound(py, output.shape.iter().map(|&d| d as i64));
+            let shape_tuple = pyo3::types::PyTuple::new(py, output.shape.iter().map(|&d| d as i64));
             let array = numpy.call_method1("array", (output.data,))?;
             let reshaped = array.call_method1("reshape", (shape_tuple,))?;
             result.set_item(output.name, reshaped)?;
