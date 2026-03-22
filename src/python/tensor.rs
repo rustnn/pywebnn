@@ -31,7 +31,7 @@ pub struct MLTensorDescriptor {
 ///
 /// Following the W3C WebNN MLTensor Explainer:
 /// https://github.com/webmachinelearning/webnn/blob/main/mltensor-explainer.md
-#[pyclass(name = "MLTensor")]
+#[pyclass(name = "MLTensor", from_py_object)]
 #[derive(Clone)]
 pub struct PyMLTensor {
     pub(crate) tensor_descriptor: MLTensorDescriptor,
@@ -202,7 +202,7 @@ impl PyMLTensor {
 /// MLDeviceTensor represents a tensor that resides on device (GPU/NPU) memory,
 /// enabling persistent storage across inference steps without host round-trips.
 /// This is critical for iterative GenAI workloads like KV cache in transformers.
-#[pyclass(name = "MLDeviceTensor")]
+#[pyclass(name = "MLDeviceTensor", skip_from_py_object)]
 pub struct PyMLDeviceTensor {
     pub(crate) handle: rustnn::tensor::DeviceTensorHandle,
     destroyed: Arc<Mutex<bool>>,
@@ -228,12 +228,12 @@ impl PyMLDeviceTensor {
     }
 
     /// Public method to read tensor data (callable from Rust)
-    pub fn read_data(&self, py: Python) -> PyResult<PyObject> {
+    pub fn read_data<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.read(py)
     }
 
     /// Public method to write tensor data (callable from Rust)
-    pub fn write_data(&mut self, py: Python, data: PyObject) -> PyResult<()> {
+    pub fn write_data<'py>(&mut self, py: Python<'py>, data: Bound<'py, PyAny>) -> PyResult<()> {
         self.write(py, data)
     }
 }
@@ -290,7 +290,7 @@ impl PyMLDeviceTensor {
     ///
     /// Raises:
     ///     RuntimeError: If tensor has been destroyed
-    fn read(&self, py: Python) -> PyResult<PyObject> {
+    fn read<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.check_destroyed()?;
 
         let data = self.handle.inner.read_to_host().map_err(|e| {
@@ -300,13 +300,13 @@ impl PyMLDeviceTensor {
             ))
         })?;
 
-        let numpy = py.import_bound("numpy")?;
+        let numpy = py.import("numpy")?;
         let shape_tuple =
-            pyo3::types::PyTuple::new_bound(py, self.handle.shape.iter().map(|&d| d as i64));
+            pyo3::types::PyTuple::new(py, self.handle.shape.iter().map(|&d| d as i64))?;
         let array = numpy.call_method1("array", (data,))?;
         let reshaped = array.call_method1("reshape", (shape_tuple,))?;
 
-        Ok(reshaped.into())
+        Ok(reshaped)
     }
 
     /// Write tensor data from host to device
@@ -319,10 +319,10 @@ impl PyMLDeviceTensor {
     /// Raises:
     ///     RuntimeError: If tensor has been destroyed
     ///     ValueError: If data shape doesn't match tensor shape
-    fn write(&mut self, py: Python, data: PyObject) -> PyResult<()> {
+    fn write(&mut self, py: Python, data: Bound<PyAny>) -> PyResult<()> {
         self.check_destroyed()?;
 
-        let numpy = py.import_bound("numpy")?;
+        let numpy = py.import("numpy")?;
 
         // Convert to numpy array
         let array = numpy.call_method1("asarray", (data,))?;

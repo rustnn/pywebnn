@@ -266,7 +266,10 @@ impl PyMLGraph {
     }
 
     /// Debug unknown shapes as structured data.
-    fn debug_unknown_shapes_structured(&self, py: Python) -> PyResult<Vec<PyObject>> {
+    fn debug_unknown_shapes_structured<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> PyResult<Vec<Bound<'py, PyAny>>> {
         use pyo3::types::PyDict;
         use std::collections::HashMap;
 
@@ -279,7 +282,7 @@ impl PyMLGraph {
             }
         }
 
-        let mut out: Vec<PyObject> = Vec::new();
+        let mut out: Vec<Bound<PyAny>> = Vec::new();
         for (idx, operand) in self.graph_info.operands.iter().enumerate() {
             let operand_id = idx as u32;
             if !operand.descriptor.shape.is_empty()
@@ -293,32 +296,32 @@ impl PyMLGraph {
                 .clone()
                 .unwrap_or_else(|| format!("operand_{}", operand_id));
             if let Some((op_type, inputs)) = producer.get(&operand_id) {
-                let mut input_descs: Vec<PyObject> = Vec::with_capacity(inputs.len());
+                let mut input_descs: Vec<Bound<PyAny>> = Vec::with_capacity(inputs.len());
                 for input_id in inputs {
                     let input_op = &self.graph_info.operands[*input_id as usize];
                     let input_name = input_op
                         .name
                         .clone()
                         .unwrap_or_else(|| format!("operand_{}", input_id));
-                    let entry = PyDict::new_bound(py);
+                    let entry = PyDict::new(py);
                     entry.set_item("id", *input_id)?;
                     entry.set_item("name", input_name)?;
                     entry.set_item("shape", input_op.descriptor.static_or_max_shape())?;
-                    input_descs.push(entry.into_py(py));
+                    input_descs.push(entry.into_any());
                 }
-                let entry = PyDict::new_bound(py);
+                let entry = PyDict::new(py);
                 entry.set_item("id", operand_id)?;
                 entry.set_item("name", name)?;
                 entry.set_item("op", op_type)?;
                 entry.set_item("inputs", input_descs)?;
-                out.push(entry.into_py(py));
+                out.push(entry.into_any());
             } else {
-                let entry = PyDict::new_bound(py);
+                let entry = PyDict::new(py);
                 entry.set_item("id", operand_id)?;
                 entry.set_item("name", name)?;
                 entry.set_item("op", py.None())?;
-                entry.set_item("inputs", Vec::<PyObject>::new())?;
-                out.push(entry.into_py(py));
+                entry.set_item("inputs", Vec::<Bound<PyAny>>::new())?;
+                out.push(entry.into_any());
             }
         }
 

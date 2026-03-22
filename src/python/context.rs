@@ -14,6 +14,7 @@ use pyo3::types::PyDict;
 use rustnn::converters::GraphConverter;
 use rustnn::debug_print;
 use rustnn::graph::{get_static_or_max_size, to_dimension_vector, OperandDescriptor};
+use std::path::PathBuf;
 
 #[cfg(feature = "onnx-runtime")]
 use rustnn::executors::onnx::{run_onnx_with_inputs, OnnxInput};
@@ -69,14 +70,16 @@ impl PyML {
     #[pyo3(signature = (power_preference="default", accelerated=true, device_type="auto"))]
     fn create_context(
         &self,
+        py: Python<'_>,
         power_preference: &str,
         accelerated: bool,
         device_type: &str,
     ) -> PyResult<PyMLContext> {
         Ok(PyMLContext::new(
+            py,
             power_preference.to_string(),
             accelerated,
-            device_type.to_string(),
+            device_type,
         ))
     }
 }
@@ -195,7 +198,7 @@ impl PyMLContext {
         // Check if we have any device tensors
         let mut has_device_tensors = false;
         for (_, value) in inputs.iter() {
-            if value.downcast::<PyMLDeviceTensor>().is_ok() {
+            if value.cast::<PyMLDeviceTensor>().is_ok() {
                 has_device_tensors = true;
                 break;
             }
@@ -203,7 +206,7 @@ impl PyMLContext {
 
         if !has_device_tensors {
             for (_, value) in outputs.iter() {
-                if value.downcast::<PyMLDeviceTensor>().is_ok() {
+                if value.cast::<PyMLDeviceTensor>().is_ok() {
                     has_device_tensors = true;
                     break;
                 }
@@ -228,9 +231,9 @@ impl PyMLContext {
         outputs: &Bound<'_, PyDict>,
     ) -> PyResult<()> {
         // Convert MLTensor inputs to numpy arrays
-        let numpy_inputs = PyDict::new_bound(py);
+        let numpy_inputs = PyDict::new(py);
         for (key, value) in inputs.iter() {
-            let tensor = value.downcast::<PyMLTensor>()?;
+            let tensor = value.cast::<PyMLTensor>()?;
             let numpy_array = self.read_tensor(py, &tensor.borrow())?;
             numpy_inputs.set_item(key, numpy_array)?;
         }
@@ -240,7 +243,7 @@ impl PyMLContext {
 
         // Write results to output tensors
         for (key, value) in outputs.iter() {
-            let tensor = value.downcast::<PyMLTensor>()?;
+            let tensor = value.cast::<PyMLTensor>()?;
             if let Some(result) = results.bind(py).get_item(&key)? {
                 self.write_tensor(py, &tensor.borrow(), result.into())?;
             }
@@ -268,12 +271,12 @@ impl PyMLContext {
         // and will be implemented in a future update
 
         // Convert inputs (device or host tensors) to numpy
-        let numpy_inputs = PyDict::new_bound(py);
+        let numpy_inputs = PyDict::new(py);
         for (key, value) in inputs.iter() {
-            if let Ok(device_tensor) = value.downcast::<PyMLDeviceTensor>() {
+            if let Ok(device_tensor) = value.cast::<PyMLDeviceTensor>() {
                 let numpy_array = device_tensor.borrow().read_data(py)?;
                 numpy_inputs.set_item(key, numpy_array)?;
-            } else if let Ok(host_tensor) = value.downcast::<PyMLTensor>() {
+            } else if let Ok(host_tensor) = value.cast::<PyMLTensor>() {
                 let numpy_array = self.read_tensor(py, &host_tensor.borrow())?;
                 numpy_inputs.set_item(key, numpy_array)?;
             } else {
@@ -288,11 +291,11 @@ impl PyMLContext {
 
         // Write results to output tensors (device or host)
         for (key, value) in outputs.iter() {
-            if let Ok(device_tensor) = value.downcast::<PyMLDeviceTensor>() {
+            if let Ok(device_tensor) = value.cast::<PyMLDeviceTensor>() {
                 if let Some(result) = results.bind(py).get_item(&key)? {
                     device_tensor.borrow_mut().write_data(py, result.into())?;
                 }
-            } else if let Ok(host_tensor) = value.downcast::<PyMLTensor>() {
+            } else if let Ok(host_tensor) = value.cast::<PyMLTensor>() {
                 if let Some(result) = results.bind(py).get_item(&key)? {
                     self.write_tensor(py, &host_tensor.borrow(), result.into())?;
                 }
@@ -413,7 +416,7 @@ impl PyMLContext {
             })?;
 
         // Return empty dict for now (actual implementation would return outputs)
-        let result = PyDict::new_bound(py);
+        let result = PyDict::new(py);
         Ok(result.into())
     }
 
@@ -611,10 +614,14 @@ impl PyMLContext {
     ///
     /// Raises:
     ///     RuntimeError: If tensor is not readable or has been destroyed
-    fn read_tensor(&self, py: Python, tensor: &PyMLTensor) -> PyResult<PyObject> {
-        let numpy = py.import_bound("numpy")?;
+    fn read_tensor<'py>(
+        &self,
+        py: Python<'py>,
+        tensor: &PyMLTensor,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let numpy = py.import("numpy")?;
         let data = tensor.get_data()?; // Now returns PyResult
-        let shape_tuple = pyo3::types::PyTuple::new_bound(
+        let shape_tuple = pyo3::types::PyTuple::new(
             py,
             tensor
                 .tensor_descriptor
@@ -622,12 +629,12 @@ impl PyMLContext {
                 .shape
                 .iter()
                 .map(|d| i64::from(get_static_or_max_size(d))),
-        );
+        )?;
 
         let array = numpy.call_method1("array", (data,))?;
         let reshaped = array.call_method1("reshape", (shape_tuple,))?;
 
-        Ok(reshaped.into())
+        Ok(reshaped)
     }
 
     /// Write data from a numpy array into a tensor
@@ -641,8 +648,8 @@ impl PyMLContext {
     /// Raises:
     ///     RuntimeError: If tensor is not writable or has been destroyed
     ///     ValueError: If data shape doesn't match tensor shape
-    fn write_tensor(&self, py: Python, tensor: &PyMLTensor, data: PyObject) -> PyResult<()> {
-        let numpy = py.import_bound("numpy")?;
+    fn write_tensor(&self, py: Python, tensor: &PyMLTensor, data: Bound<PyAny>) -> PyResult<()> {
+        let numpy = py.import("numpy")?;
 
         // Convert to numpy array
         let array = numpy.call_method1("asarray", (data,))?;
@@ -710,7 +717,7 @@ impl PyMLContext {
     ///     >>> print(limits['input']['dataTypes'])
     ///     ['float32', 'float16', 'int32', ...]
     fn op_support_limits(&self, py: Python) -> PyResult<Py<PyDict>> {
-        let result = PyDict::new_bound(py);
+        let result = PyDict::new(py);
 
         // Helper function to create data type lists
         let create_float_types = || -> Vec<&str> { vec!["float32", "float16"] };
@@ -723,7 +730,7 @@ impl PyMLContext {
 
         // Helper function to create rank range
         let create_rank_range = |py: Python| -> PyResult<Py<PyDict>> {
-            let rank = PyDict::new_bound(py);
+            let rank = PyDict::new(py);
             rank.set_item("min", 0)?;
             rank.set_item("max", 4)?; // Support up to 4D tensors
             Ok(rank.into())
@@ -731,7 +738,7 @@ impl PyMLContext {
 
         // Helper function to create tensor limits
         let create_tensor_limits = |py: Python, float_only: bool| -> PyResult<Py<PyDict>> {
-            let limits = PyDict::new_bound(py);
+            let limits = PyDict::new(py);
             let types = if float_only {
                 create_float_types()
             } else {
@@ -744,7 +751,7 @@ impl PyMLContext {
 
         // Helper function to create single input limits
         let create_single_input_limits = |py: Python| -> PyResult<Py<PyDict>> {
-            let limits = PyDict::new_bound(py);
+            let limits = PyDict::new(py);
             limits.set_item("input", create_tensor_limits(py, true)?)?;
             limits.set_item("output", create_tensor_limits(py, true)?)?;
             Ok(limits.into())
@@ -752,7 +759,7 @@ impl PyMLContext {
 
         // Helper function to create binary limits
         let create_binary_limits = |py: Python| -> PyResult<Py<PyDict>> {
-            let limits = PyDict::new_bound(py);
+            let limits = PyDict::new(py);
             limits.set_item("a", create_tensor_limits(py, true)?)?;
             limits.set_item("b", create_tensor_limits(py, true)?)?;
             limits.set_item("output", create_tensor_limits(py, true)?)?;
@@ -835,7 +842,7 @@ impl PyMLContext {
         result.set_item("atanh", create_single_input_limits(py)?)?;
 
         // Type conversion
-        let cast_limits = PyDict::new_bound(py);
+        let cast_limits = PyDict::new(py);
         cast_limits.set_item("input", create_tensor_limits(py, false)?)?;
         cast_limits.set_item("output", create_tensor_limits(py, false)?)?;
         result.set_item("cast", cast_limits)?;
@@ -850,26 +857,26 @@ impl PyMLContext {
         result.set_item("tile", create_single_input_limits(py)?)?;
 
         // Concat
-        let concat_limits = PyDict::new_bound(py);
+        let concat_limits = PyDict::new(py);
         concat_limits.set_item("inputs", create_tensor_limits(py, true)?)?;
         concat_limits.set_item("output", create_tensor_limits(py, true)?)?;
         result.set_item("concat", concat_limits)?;
 
         // Split
-        let split_limits = PyDict::new_bound(py);
+        let split_limits = PyDict::new(py);
         split_limits.set_item("input", create_tensor_limits(py, true)?)?;
         split_limits.set_item("outputs", create_tensor_limits(py, true)?)?;
         result.set_item("split", split_limits)?;
 
         // Convolution
-        let conv2d_limits = PyDict::new_bound(py);
+        let conv2d_limits = PyDict::new(py);
         conv2d_limits.set_item("input", create_tensor_limits(py, true)?)?;
         conv2d_limits.set_item("filter", create_tensor_limits(py, true)?)?;
         conv2d_limits.set_item("bias", create_tensor_limits(py, true)?)?;
         conv2d_limits.set_item("output", create_tensor_limits(py, true)?)?;
         result.set_item("conv2d", conv2d_limits)?;
 
-        let conv_transpose_limits = PyDict::new_bound(py);
+        let conv_transpose_limits = PyDict::new(py);
         conv_transpose_limits.set_item("input", create_tensor_limits(py, true)?)?;
         conv_transpose_limits.set_item("filter", create_tensor_limits(py, true)?)?;
         conv_transpose_limits.set_item("bias", create_tensor_limits(py, true)?)?;
@@ -877,14 +884,14 @@ impl PyMLContext {
         result.set_item("convTranspose2d", conv_transpose_limits)?;
 
         // Pooling
-        let pool2d_limits = PyDict::new_bound(py);
+        let pool2d_limits = PyDict::new(py);
         pool2d_limits.set_item("input", create_tensor_limits(py, true)?)?;
         pool2d_limits.set_item("output", create_tensor_limits(py, true)?)?;
         result.set_item("averagePool2d", pool2d_limits.clone())?;
         result.set_item("maxPool2d", pool2d_limits)?;
 
         // Normalization
-        let batch_norm_limits = PyDict::new_bound(py);
+        let batch_norm_limits = PyDict::new(py);
         batch_norm_limits.set_item("input", create_tensor_limits(py, true)?)?;
         batch_norm_limits.set_item("mean", create_tensor_limits(py, true)?)?;
         batch_norm_limits.set_item("variance", create_tensor_limits(py, true)?)?;
@@ -893,7 +900,7 @@ impl PyMLContext {
         batch_norm_limits.set_item("output", create_tensor_limits(py, true)?)?;
         result.set_item("batchNormalization", batch_norm_limits)?;
 
-        let norm_limits = PyDict::new_bound(py);
+        let norm_limits = PyDict::new(py);
         norm_limits.set_item("input", create_tensor_limits(py, true)?)?;
         norm_limits.set_item("scale", create_tensor_limits(py, true)?)?;
         norm_limits.set_item("bias", create_tensor_limits(py, true)?)?;
@@ -914,7 +921,7 @@ impl PyMLContext {
         result.set_item("reduceSumSquare", create_single_input_limits(py)?)?;
 
         // GEMM
-        let gemm_limits = PyDict::new_bound(py);
+        let gemm_limits = PyDict::new(py);
         gemm_limits.set_item("a", create_tensor_limits(py, true)?)?;
         gemm_limits.set_item("b", create_tensor_limits(py, true)?)?;
         gemm_limits.set_item("c", create_tensor_limits(py, true)?)?;
@@ -922,21 +929,21 @@ impl PyMLContext {
         result.set_item("gemm", gemm_limits)?;
 
         // ArgMax/ArgMin
-        let arg_limits = PyDict::new_bound(py);
+        let arg_limits = PyDict::new(py);
         arg_limits.set_item("input", create_tensor_limits(py, true)?)?;
         arg_limits.set_item("output", create_tensor_limits(py, false)?)?; // Outputs int64/uint64
         result.set_item("argMax", arg_limits.clone())?;
         result.set_item("argMin", arg_limits)?;
 
         // Gather operations
-        let gather_limits = PyDict::new_bound(py);
+        let gather_limits = PyDict::new(py);
         gather_limits.set_item("input", create_tensor_limits(py, true)?)?;
         gather_limits.set_item("indices", create_tensor_limits(py, false)?)?;
         gather_limits.set_item("output", create_tensor_limits(py, true)?)?;
         result.set_item("gather", gather_limits)?;
 
         // Scatter operations
-        let scatter_limits = PyDict::new_bound(py);
+        let scatter_limits = PyDict::new(py);
         scatter_limits.set_item("input", create_tensor_limits(py, true)?)?;
         scatter_limits.set_item("indices", create_tensor_limits(py, false)?)?;
         scatter_limits.set_item("updates", create_tensor_limits(py, true)?)?;
@@ -945,7 +952,7 @@ impl PyMLContext {
         result.set_item("scatterND", scatter_limits)?;
 
         // Where
-        let where_limits = PyDict::new_bound(py);
+        let where_limits = PyDict::new(py);
         where_limits.set_item("condition", create_tensor_limits(py, false)?)?;
         where_limits.set_item("trueValue", create_tensor_limits(py, true)?)?;
         where_limits.set_item("falseValue", create_tensor_limits(py, true)?)?;
@@ -956,14 +963,14 @@ impl PyMLContext {
         result.set_item("pad", create_single_input_limits(py)?)?;
 
         // Quantization
-        let quant_limits = PyDict::new_bound(py);
+        let quant_limits = PyDict::new(py);
         quant_limits.set_item("input", create_tensor_limits(py, true)?)?;
         quant_limits.set_item("scale", create_tensor_limits(py, true)?)?;
         quant_limits.set_item("zeroPoint", create_tensor_limits(py, false)?)?;
         quant_limits.set_item("output", create_tensor_limits(py, false)?)?;
         result.set_item("quantizeLinear", quant_limits.clone())?;
 
-        let dequant_limits = PyDict::new_bound(py);
+        let dequant_limits = PyDict::new(py);
         dequant_limits.set_item("input", create_tensor_limits(py, false)?)?;
         dequant_limits.set_item("scale", create_tensor_limits(py, true)?)?;
         dequant_limits.set_item("zeroPoint", create_tensor_limits(py, false)?)?;
@@ -982,7 +989,7 @@ impl PyMLContext {
     /// were compiled into the wheel, and whether the selected backend is actually
     /// available (otherwise the fallback path returns zeros).
     fn backend_info(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
-        let info = PyDict::new_bound(py);
+        let info = PyDict::new(py);
 
         let backend = match self.backend {
             Backend::OnnxCpu => "onnx_cpu",
@@ -1014,7 +1021,7 @@ impl PyMLContext {
         info.set_item("backend", backend)?;
         info.set_item("accelerated_available", self.accelerated_available)?;
         info.set_item("compiled_features", {
-            let compiled = PyDict::new_bound(py);
+            let compiled = PyDict::new(py);
             compiled.set_item("onnx_runtime", onnx_compiled)?;
             compiled.set_item("coreml_runtime", coreml_compiled)?;
             compiled.set_item("trtx_runtime", trtx_compiled)?;
@@ -1037,44 +1044,14 @@ impl PyMLContext {
 }
 
 impl PyMLContext {
-    fn new(power_preference: String, accelerated_requested: bool, device_type: String) -> Self {
-        // Force specific backend if requested, otherwise use automatic selection
-        let (backend, accelerated_available) = match device_type.as_str() {
-            "cpu" => {
-                #[cfg(feature = "onnx-runtime")]
-                {
-                    (Backend::OnnxCpu, false)
-                }
-                #[cfg(not(feature = "onnx-runtime"))]
-                {
-                    (Backend::None, false)
-                }
-            }
-            "gpu" => {
-                #[cfg(feature = "onnx-runtime")]
-                {
-                    (Backend::OnnxGpu, true)
-                }
-                #[cfg(not(feature = "onnx-runtime"))]
-                {
-                    (Backend::None, false)
-                }
-            }
-            "npu" => {
-                #[cfg(all(target_os = "macos", feature = "coreml-runtime"))]
-                {
-                    (Backend::CoreML, true)
-                }
-                #[cfg(not(all(target_os = "macos", feature = "coreml-runtime")))]
-                {
-                    (Backend::None, false)
-                }
-            }
-            _ => {
-                // "auto" or unrecognized - use automatic selection
-                Self::select_backend(accelerated_requested, &power_preference)
-            }
-        };
+    fn new(
+        py: Python<'_>,
+        power_preference: String,
+        accelerated_requested: bool,
+        device_type: &str,
+    ) -> Self {
+        let (backend, accelerated_available) =
+            Self::select_backend(py, accelerated_requested, &power_preference, device_type);
 
         Self {
             power_preference,
@@ -1144,7 +1121,7 @@ impl PyMLContext {
         })?;
 
         // Convert Python inputs to OnnxInput structs
-        let numpy = py.import_bound("numpy")?;
+        let numpy = py.import("numpy")?;
         let mut onnx_inputs = Vec::new();
 
         for input_id in &graph.graph_info.input_operands {
@@ -1271,10 +1248,10 @@ impl PyMLContext {
         })?;
 
         // Convert outputs back to numpy arrays
-        let result = PyDict::new_bound(py);
+        let result = PyDict::new(py);
         for output in onnx_outputs {
             let shape_tuple =
-                pyo3::types::PyTuple::new_bound(py, output.shape.iter().map(|&d| d as i64));
+                pyo3::types::PyTuple::new(py, output.shape.iter().map(|&d| d as i64))?;
             let array = numpy.call_method1("array", (output.data,))?;
             let reshaped = array.call_method1("reshape", (shape_tuple,))?;
             result.set_item(output.name, reshaped)?;
@@ -1313,7 +1290,7 @@ impl PyMLContext {
         })?;
 
         // Convert Python inputs to CoremlInput structs
-        let numpy = py.import_bound("numpy")?;
+        let numpy = py.import("numpy")?;
         let mut coreml_inputs = Vec::new();
 
         for input_id in &graph.graph_info.input_operands {
@@ -1415,7 +1392,7 @@ impl PyMLContext {
             })?;
 
         // Convert outputs back to numpy arrays
-        let result = PyDict::new_bound(py);
+        let result = PyDict::new(py);
         for output in outputs {
             // Check if original graph output was scalar (0D)
             // Find the corresponding output operand in the graph
@@ -1436,7 +1413,7 @@ impl PyMLContext {
                 }
             }
 
-            let shape_tuple = pyo3::types::PyTuple::new_bound(py, original_shape.iter().copied());
+            let shape_tuple = pyo3::types::PyTuple::new(py, original_shape.iter().copied())?;
             let array = numpy.call_method1("array", (output.data,))?;
             let reshaped = array.call_method1("reshape", (shape_tuple,))?;
             result.set_item(output.name, reshaped)?;
@@ -1475,10 +1452,12 @@ impl PyMLContext {
         })?;
 
         // Convert Python inputs to TrtxInput structs
-        let numpy = py.import_bound("numpy")?;
+        let numpy = py.import("numpy")?;
         let mut trtx_inputs = Vec::new();
 
         for input_id in &graph.graph_info.input_operands {
+            use rustnn::graph::Dimension;
+
             let input_op = graph
                 .graph_info
                 .operands
@@ -1495,7 +1474,11 @@ impl PyMLContext {
 
             // Skip empty KV cache inputs (past_sequence_length=0)
             // These will be removed by the converter, so don't expect them in inputs dict
-            let has_empty_dimension = input_op.descriptor.shape.iter().any(|&dim| dim == 0);
+            let has_empty_dimension = input_op
+                .descriptor
+                .shape
+                .iter()
+                .any(|dim| dim == &Dimension::Static(0));
             let is_kv_input = input_name.starts_with("past_key_values_");
             if has_empty_dimension && is_kv_input {
                 debug_print!(
@@ -1520,12 +1503,12 @@ impl PyMLContext {
 
             // Get flattened data
             let flat = array_f32.call_method0("flatten")?;
-            let data: Vec<f32> = flat.call_method0("tolist")?.extract()?;
+            let data: Vec<f32> = flat.call_method0("data")?.extract()?;
 
+            #[allow(unreachable_code)]
             trtx_inputs.push(TrtxInput {
                 name: input_name.to_string(),
-                shape,
-                data,
+                data: todo!("Needs to follow API change: {data:?}, validate shape {shape:?}"),
             });
         }
 
@@ -1535,10 +1518,10 @@ impl PyMLContext {
         })?;
 
         // Convert outputs back to numpy arrays
-        let result = PyDict::new_bound(py);
+        let result = PyDict::new(py);
         for output in trtx_outputs {
             let shape_tuple =
-                pyo3::types::PyTuple::new_bound(py, output.shape.iter().map(|&d| d as i64));
+                pyo3::types::PyTuple::new(py, output.shape.iter().map(|&d| d as i64))?;
             let array = numpy.call_method1("array", (output.data,))?;
             let reshaped = array.call_method1("reshape", (shape_tuple,))?;
             result.set_item(output.name, reshaped)?;
@@ -1572,116 +1555,63 @@ impl PyMLContext {
     /// - accelerated=true + power="high-performance" → GPU > NPU > CPU
     /// - accelerated=true + power="default" → GPU > NPU > CPU
     /// - accelerated=false → CPU only
-    fn select_backend(accelerated: bool, power_preference: &str) -> (Backend, bool) {
-        if !accelerated {
-            // User explicitly requested CPU-only execution
-            #[cfg(feature = "onnx-runtime")]
-            {
-                return (Backend::OnnxCpu, false);
-            }
-            #[cfg(not(feature = "onnx-runtime"))]
-            {
-                return (Backend::None, false);
-            }
-        }
+    fn select_backend(
+        py: Python<'_>,
+        accelerated: bool,
+        power_preference: &str,
+        device_type: &str,
+    ) -> (Backend, bool) {
+        // Check for TensorRT RTX libs in
+        // https://pypi.org/project/tensorrt-rtx-cu13-libs/
+        // https://pypi.org/project/tensorrt-rtx-cu12-libs/
+        let tensorrt_lib_path = py
+            .import("tensorrt_rtx_libs")
+            .and_then(|libs| libs.getattr("__file__"))
+            .ok()
+            .and_then(|init_path| {
+                let init_path = PathBuf::from(init_path.to_string());
+                let mod_path = init_path.parent();
+                ["libtensort_rtx.so.1", "tensort_rtx_1_4.dll"]
+                    .iter()
+                    .find_map(|file| mod_path.map(|p| p.join(file)).filter(|p| p.is_file()))
+            });
 
-        // Accelerated execution requested - select based on power preference
-        match power_preference {
-            "low-power" => {
-                // Prefer NPU (Neural Engine on macOS) for low power
-                #[cfg(all(target_os = "macos", feature = "coreml-runtime"))]
-                {
-                    return (Backend::CoreML, true);
-                }
+        let have_onnx = cfg!(feature = "onnx-runtime");
+        let have_coreml = cfg!(feature = "coreml-runtime");
+        let have_trtx = cfg!(feature = "trtx-runtime") && tensorrt_lib_path.is_some();
 
-                // Fallback to GPU if NPU not available
-                #[cfg(all(not(target_os = "macos"), feature = "onnx-runtime"))]
-                {
-                    return (Backend::OnnxGpu, true);
-                }
-                #[cfg(all(
-                    target_os = "macos",
-                    not(feature = "coreml-runtime"),
-                    feature = "onnx-runtime"
-                ))]
-                {
-                    return (Backend::OnnxGpu, true);
-                }
+        let want_trtx = false; // TODO: implement, then prefer over ONNX
+        let want_core_ml = false; // TODO: implement, then prefer over ONNX
 
-                // No acceleration available - only reachable when onnx-runtime is not enabled
-                #[cfg(not(feature = "onnx-runtime"))]
-                {
-                    (Backend::None, false)
-                }
-
-                // When onnx-runtime is enabled, one of the above cfg blocks will match and return,
-                // so this branch is never reached. We need this to satisfy the compiler in that case.
-                #[cfg(feature = "onnx-runtime")]
-                #[allow(unreachable_code)]
-                {
+        // Force specific backend if requested, otherwise use automatic selection
+        match (device_type, accelerated, power_preference) {
+            ("npu", _, _) if have_coreml && want_core_ml => (Backend::CoreML, true),
+            ("cpu", _, _) | (_, false, _) if have_onnx => (Backend::OnnxCpu, false),
+            ("auto", _, "low-power") if have_coreml && want_core_ml => (Backend::CoreML, true),
+            ("auto", _, "low-power") if have_onnx => (Backend::OnnxGpu, true),
+            ("gpu", _, _) | ("auto", _, "high-performance" | "default") => {
+                if have_trtx && want_trtx && load_trt(tensorrt_lib_path) {
+                    (Backend::TensorRT, true)
+                } else if have_coreml && want_core_ml {
+                    (Backend::CoreML, true)
+                } else if have_onnx {
+                    (Backend::OnnxGpu, true)
+                } else {
                     (Backend::None, false)
                 }
             }
-            "high-performance" | "default" => {
-                // Prefer TensorRT for NVIDIA GPU when available (highest performance)
-                #[cfg(any(feature = "trtx-runtime", feature = "trtx-runtime-mock"))]
-                {
-                    return (Backend::TensorRT, true);
-                }
-
-                // Prefer ONNX GPU for cross-platform consistency
-                // TODO: Enable CoreML priority once CoreML executor bugs are fixed
-                // (currently panics on multi-output operations and some data type mismatches)
-                #[cfg(all(
-                    feature = "onnx-runtime",
-                    not(any(feature = "trtx-runtime", feature = "trtx-runtime-mock"))
-                ))]
-                {
-                    (Backend::OnnxGpu, true)
-                }
-
-                // Fallback to CoreML on macOS if ONNX not available
-                #[cfg(all(
-                    target_os = "macos",
-                    feature = "coreml-runtime",
-                    not(feature = "onnx-runtime"),
-                    not(any(feature = "trtx-runtime", feature = "trtx-runtime-mock"))
-                ))]
-                {
-                    return (Backend::CoreML, true);
-                }
-
-                // No acceleration available, fallback to CPU
-                #[cfg(all(
-                    not(feature = "onnx-runtime"),
-                    not(feature = "coreml-runtime"),
-                    not(any(feature = "trtx-runtime", feature = "trtx-runtime-mock"))
-                ))]
-                {
-                    return (Backend::None, false);
-                }
-            }
-            _ => {
-                // Unknown power preference, use default behavior (GPU preferred)
-                #[cfg(any(feature = "trtx-runtime", feature = "trtx-runtime-mock"))]
-                {
-                    return (Backend::TensorRT, true);
-                }
-                #[cfg(all(
-                    feature = "onnx-runtime",
-                    not(any(feature = "trtx-runtime", feature = "trtx-runtime-mock"))
-                ))]
-                {
-                    (Backend::OnnxGpu, true)
-                }
-                #[cfg(all(
-                    not(feature = "onnx-runtime"),
-                    not(any(feature = "trtx-runtime", feature = "trtx-runtime-mock"))
-                ))]
-                {
-                    return (Backend::None, false);
-                }
-            }
+            _ => (Backend::None, false),
         }
+    }
+}
+
+fn load_trt(tensorrt_lib_path: Option<PathBuf>) -> bool {
+    #[cfg(any(feature = "trtx-runtime", feature = "trtx-runtime-mock"))]
+    {
+        trtx::dynamically_load_tensorrt(tensorrt_lib_path).is_ok()
+    }
+    #[cfg(not(feature = "trtx-runtime"))]
+    {
+        panic!("Should only be called with feature enabled")
     }
 }
