@@ -103,7 +103,7 @@ impl PyMLGraphBuilder {
         data_type: Option<&str>,
     ) -> PyResult<PyMLOperand> {
         // Try to import numpy and convert to array
-        let numpy = py.import_bound("numpy")?;
+        let numpy = py.import("numpy")?;
         let array = numpy.call_method1("asarray", (value,))?;
 
         // Get shape from array if not provided

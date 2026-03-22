@@ -8,7 +8,7 @@ use pyo3::prelude::*;
 use rustnn::graph::{DataType, OperandDescriptor, OperandKind};
 
 /// Represents an operand in the computational graph
-#[pyclass(name = "MLOperand")]
+#[pyclass(name = "MLOperand", from_py_object)]
 #[derive(Clone)]
 pub struct PyMLOperand {
     pub(crate) id: u32,
