@@ -14,6 +14,7 @@ use pyo3::types::PyDict;
 use rustnn::converters::GraphConverter;
 use rustnn::debug_print;
 use rustnn::graph::{get_static_or_max_size, to_dimension_vector, OperandDescriptor};
+use std::path::PathBuf;
 
 #[cfg(feature = "onnx-runtime")]
 use rustnn::executors::onnx::{run_onnx_with_inputs, OnnxInput};
@@ -69,14 +70,16 @@ impl PyML {
     #[pyo3(signature = (power_preference="default", accelerated=true, device_type="auto"))]
     fn create_context(
         &self,
+        py: Python<'_>,
         power_preference: &str,
         accelerated: bool,
         device_type: &str,
     ) -> PyResult<PyMLContext> {
         Ok(PyMLContext::new(
+            py,
             power_preference.to_string(),
             accelerated,
-            device_type.to_string(),
+            device_type,
         ))
     }
 }
@@ -1041,44 +1044,14 @@ impl PyMLContext {
 }
 
 impl PyMLContext {
-    fn new(power_preference: String, accelerated_requested: bool, device_type: String) -> Self {
-        // Force specific backend if requested, otherwise use automatic selection
-        let (backend, accelerated_available) = match device_type.as_str() {
-            "cpu" => {
-                #[cfg(feature = "onnx-runtime")]
-                {
-                    (Backend::OnnxCpu, false)
-                }
-                #[cfg(not(feature = "onnx-runtime"))]
-                {
-                    (Backend::None, false)
-                }
-            }
-            "gpu" => {
-                #[cfg(feature = "onnx-runtime")]
-                {
-                    (Backend::OnnxGpu, true)
-                }
-                #[cfg(not(feature = "onnx-runtime"))]
-                {
-                    (Backend::None, false)
-                }
-            }
-            "npu" => {
-                #[cfg(all(target_os = "macos", feature = "coreml-runtime"))]
-                {
-                    (Backend::CoreML, true)
-                }
-                #[cfg(not(all(target_os = "macos", feature = "coreml-runtime")))]
-                {
-                    (Backend::None, false)
-                }
-            }
-            _ => {
-                // "auto" or unrecognized - use automatic selection
-                Self::select_backend(accelerated_requested, &power_preference)
-            }
-        };
+    fn new(
+        py: Python<'_>,
+        power_preference: String,
+        accelerated_requested: bool,
+        device_type: &str,
+    ) -> Self {
+        let (backend, accelerated_available) =
+            Self::select_backend(py, accelerated_requested, &power_preference, device_type);
 
         Self {
             power_preference,
@@ -1483,6 +1456,8 @@ impl PyMLContext {
         let mut trtx_inputs = Vec::new();
 
         for input_id in &graph.graph_info.input_operands {
+            use rustnn::graph::Dimension;
+
             let input_op = graph
                 .graph_info
                 .operands
@@ -1499,7 +1474,11 @@ impl PyMLContext {
 
             // Skip empty KV cache inputs (past_sequence_length=0)
             // These will be removed by the converter, so don't expect them in inputs dict
-            let has_empty_dimension = input_op.descriptor.shape.iter().any(|&dim| dim == 0);
+            let has_empty_dimension = input_op
+                .descriptor
+                .shape
+                .iter()
+                .any(|dim| dim == &Dimension::Static(0));
             let is_kv_input = input_name.starts_with("past_key_values_");
             if has_empty_dimension && is_kv_input {
                 debug_print!(
@@ -1524,12 +1503,12 @@ impl PyMLContext {
 
             // Get flattened data
             let flat = array_f32.call_method0("flatten")?;
-            let data: Vec<f32> = flat.call_method0("tolist")?.extract()?;
+            let data: Vec<f32> = flat.call_method0("data")?.extract()?;
 
+            #[allow(unreachable_code)]
             trtx_inputs.push(TrtxInput {
                 name: input_name.to_string(),
-                shape,
-                data,
+                data: todo!("Needs to follow API change: {data:?}, validate shape {shape:?}"),
             });
         }
 
@@ -1541,7 +1520,8 @@ impl PyMLContext {
         // Convert outputs back to numpy arrays
         let result = PyDict::new(py);
         for output in trtx_outputs {
-            let shape_tuple = pyo3::types::PyTuple::new(py, output.shape.iter().map(|&d| d as i64));
+            let shape_tuple =
+                pyo3::types::PyTuple::new(py, output.shape.iter().map(|&d| d as i64))?;
             let array = numpy.call_method1("array", (output.data,))?;
             let reshaped = array.call_method1("reshape", (shape_tuple,))?;
             result.set_item(output.name, reshaped)?;
@@ -1575,116 +1555,63 @@ impl PyMLContext {
     /// - accelerated=true + power="high-performance" → GPU > NPU > CPU
     /// - accelerated=true + power="default" → GPU > NPU > CPU
     /// - accelerated=false → CPU only
-    fn select_backend(accelerated: bool, power_preference: &str) -> (Backend, bool) {
-        if !accelerated {
-            // User explicitly requested CPU-only execution
-            #[cfg(feature = "onnx-runtime")]
-            {
-                return (Backend::OnnxCpu, false);
-            }
-            #[cfg(not(feature = "onnx-runtime"))]
-            {
-                return (Backend::None, false);
-            }
-        }
+    fn select_backend(
+        py: Python<'_>,
+        accelerated: bool,
+        power_preference: &str,
+        device_type: &str,
+    ) -> (Backend, bool) {
+        // Check for TensorRT RTX libs in
+        // https://pypi.org/project/tensorrt-rtx-cu13-libs/
+        // https://pypi.org/project/tensorrt-rtx-cu12-libs/
+        let tensorrt_lib_path = py
+            .import("tensorrt_rtx_libs")
+            .and_then(|libs| libs.getattr("__file__"))
+            .ok()
+            .and_then(|init_path| {
+                let init_path = PathBuf::from(init_path.to_string());
+                let mod_path = init_path.parent();
+                ["libtensort_rtx.so.1", "tensort_rtx_1_4.dll"]
+                    .iter()
+                    .find_map(|file| mod_path.map(|p| p.join(file)).filter(|p| p.is_file()))
+            });
 
-        // Accelerated execution requested - select based on power preference
-        match power_preference {
-            "low-power" => {
-                // Prefer NPU (Neural Engine on macOS) for low power
-                #[cfg(all(target_os = "macos", feature = "coreml-runtime"))]
-                {
-                    return (Backend::CoreML, true);
-                }
+        let have_onnx = cfg!(feature = "onnx-runtime");
+        let have_coreml = cfg!(feature = "coreml-runtime");
+        let have_trtx = cfg!(feature = "trtx-runtime") && tensorrt_lib_path.is_some();
 
-                // Fallback to GPU if NPU not available
-                #[cfg(all(not(target_os = "macos"), feature = "onnx-runtime"))]
-                {
-                    return (Backend::OnnxGpu, true);
-                }
-                #[cfg(all(
-                    target_os = "macos",
-                    not(feature = "coreml-runtime"),
-                    feature = "onnx-runtime"
-                ))]
-                {
-                    return (Backend::OnnxGpu, true);
-                }
+        let want_trtx = false; // TODO: implement, then prefer over ONNX
+        let want_core_ml = false; // TODO: implement, then prefer over ONNX
 
-                // No acceleration available - only reachable when onnx-runtime is not enabled
-                #[cfg(not(feature = "onnx-runtime"))]
-                {
-                    (Backend::None, false)
-                }
-
-                // When onnx-runtime is enabled, one of the above cfg blocks will match and return,
-                // so this branch is never reached. We need this to satisfy the compiler in that case.
-                #[cfg(feature = "onnx-runtime")]
-                #[allow(unreachable_code)]
-                {
+        // Force specific backend if requested, otherwise use automatic selection
+        match (device_type, accelerated, power_preference) {
+            ("npu", _, _) if have_coreml && want_core_ml => (Backend::CoreML, true),
+            ("cpu", _, _) | (_, false, _) if have_onnx => (Backend::OnnxCpu, false),
+            ("auto", _, "low-power") if have_coreml && want_core_ml => (Backend::CoreML, true),
+            ("auto", _, "low-power") if have_onnx => (Backend::OnnxGpu, true),
+            ("gpu", _, _) | ("auto", _, "high-performance" | "default") => {
+                if have_trtx && want_trtx && load_trt(tensorrt_lib_path) {
+                    (Backend::TensorRT, true)
+                } else if have_coreml && want_core_ml {
+                    (Backend::CoreML, true)
+                } else if have_onnx {
+                    (Backend::OnnxGpu, true)
+                } else {
                     (Backend::None, false)
                 }
             }
-            "high-performance" | "default" => {
-                // Prefer TensorRT for NVIDIA GPU when available (highest performance)
-                #[cfg(any(feature = "trtx-runtime", feature = "trtx-runtime-mock"))]
-                {
-                    return (Backend::TensorRT, true);
-                }
-
-                // Prefer ONNX GPU for cross-platform consistency
-                // TODO: Enable CoreML priority once CoreML executor bugs are fixed
-                // (currently panics on multi-output operations and some data type mismatches)
-                #[cfg(all(
-                    feature = "onnx-runtime",
-                    not(any(feature = "trtx-runtime", feature = "trtx-runtime-mock"))
-                ))]
-                {
-                    (Backend::OnnxGpu, true)
-                }
-
-                // Fallback to CoreML on macOS if ONNX not available
-                #[cfg(all(
-                    target_os = "macos",
-                    feature = "coreml-runtime",
-                    not(feature = "onnx-runtime"),
-                    not(any(feature = "trtx-runtime", feature = "trtx-runtime-mock"))
-                ))]
-                {
-                    return (Backend::CoreML, true);
-                }
-
-                // No acceleration available, fallback to CPU
-                #[cfg(all(
-                    not(feature = "onnx-runtime"),
-                    not(feature = "coreml-runtime"),
-                    not(any(feature = "trtx-runtime", feature = "trtx-runtime-mock"))
-                ))]
-                {
-                    return (Backend::None, false);
-                }
-            }
-            _ => {
-                // Unknown power preference, use default behavior (GPU preferred)
-                #[cfg(any(feature = "trtx-runtime", feature = "trtx-runtime-mock"))]
-                {
-                    return (Backend::TensorRT, true);
-                }
-                #[cfg(all(
-                    feature = "onnx-runtime",
-                    not(any(feature = "trtx-runtime", feature = "trtx-runtime-mock"))
-                ))]
-                {
-                    (Backend::OnnxGpu, true)
-                }
-                #[cfg(all(
-                    not(feature = "onnx-runtime"),
-                    not(any(feature = "trtx-runtime", feature = "trtx-runtime-mock"))
-                ))]
-                {
-                    return (Backend::None, false);
-                }
-            }
+            _ => (Backend::None, false),
         }
+    }
+}
+
+fn load_trt(tensorrt_lib_path: Option<PathBuf>) -> bool {
+    #[cfg(any(feature = "trtx-runtime", feature = "trtx-runtime-mock"))]
+    {
+        trtx::dynamically_load_tensorrt(tensorrt_lib_path).is_ok()
+    }
+    #[cfg(not(feature = "trtx-runtime"))]
+    {
+        panic!("Should only be called with feature enabled")
     }
 }

@@ -31,10 +31,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = [
-    "pytest>=7.0",
-    "pytest-asyncio",
-]
+test = ["pytest>=7.0", "pytest-asyncio"]
+trtx = ["tensorrt-rtx-cu13-libs"]
 
 [project.urls]
 Homepage = "https://github.com/rustnn/pywebnn"
@@ -46,4 +44,9 @@ Issues = "https://github.com/rustnn/pywebnn/issues"
 module-name = "webnn._rustnn"
 python-source = "python"
 # Enable ONNX Runtime and CoreML by default for editable installs.
-features = ["pyo3/extension-module", "onnx-runtime", "coreml-runtime"]
+features = [
+    "pyo3/extension-module",
+    "onnx-runtime",
+    "coreml-runtime",
+    "trtx-runtime",
+]
