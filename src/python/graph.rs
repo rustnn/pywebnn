@@ -136,7 +136,7 @@ impl PyMLGraph {
 
         let mut scalar_outputs = HashSet::new();
         for op in &self.graph_info.operations {
-            let op_type = op.op_type.to_ascii_lowercase();
+            let op_type = op.op_type().to_ascii_lowercase();
             if op_type == "constant" {
                 for &output_id in op.output_operands_slice() {
                     scalar_outputs.insert(output_id);
@@ -159,8 +159,8 @@ impl PyMLGraph {
                 continue;
             }
 
-            let keep_dimensions = op
-                .attributes
+            let attrs = op.attributes_json_value();
+            let keep_dimensions = attrs
                 .get("keepDimensions")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
@@ -168,10 +168,10 @@ impl PyMLGraph {
                 continue;
             }
 
-            let Some(output_id) = op.output_operand else {
+            let Some(output_id) = op.output_operand() else {
                 continue;
             };
-            let Some(input_id) = op.input_operands.first().copied() else {
+            let Some(input_id) = op.input_operands().first().copied() else {
                 continue;
             };
             let input_shape = &self.graph_info.operands[input_id as usize].descriptor.shape;
@@ -179,7 +179,7 @@ impl PyMLGraph {
                 continue;
             }
 
-            let axes = op.attributes.get("axes").and_then(|v| parse_i64_array(&v));
+            let axes = attrs.get("axes").and_then(|v| parse_i64_array(v));
             let Some(axes) = axes else {
                 continue;
             };
@@ -220,8 +220,8 @@ impl PyMLGraph {
 
         let mut producer: HashMap<u32, (String, Vec<u32>)> = HashMap::new();
         for op in &self.graph_info.operations {
-            let op_type = op.op_type.clone();
-            let input_ids = op.input_operands.clone();
+            let op_type = op.op_type().to_string();
+            let input_ids = op.input_operands();
             for &output_id in op.output_operands_slice() {
                 producer.insert(output_id, (op_type.clone(), input_ids.clone()));
             }
@@ -272,8 +272,8 @@ impl PyMLGraph {
 
         let mut producer: HashMap<u32, (String, Vec<u32>)> = HashMap::new();
         for op in &self.graph_info.operations {
-            let op_type = op.op_type.clone();
-            let input_ids = op.input_operands.clone();
+            let op_type = op.op_type().to_string();
+            let input_ids = op.input_operands();
             for &output_id in op.output_operands_slice() {
                 producer.insert(output_id, (op_type.clone(), input_ids.clone()));
             }
