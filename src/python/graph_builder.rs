@@ -13,7 +13,6 @@ use pyo3::types::PyDict;
 use rustnn::graph::{
     to_dimension_vector, ConstantData, DataType, GraphInfo, Operand, OperandDescriptor, OperandKind,
 };
-use rustnn::Operation;
 use rustnn::operator_options::{
     MLArgMinMaxOptions, MLBatchNormalizationOptions, MLClampOptions, MLConv2dOptions,
     MLConvTranspose2dOptions, MLDimension, MLEluOptions, MLGatherOptions, MLGemmOptions,
@@ -24,6 +23,7 @@ use rustnn::operator_options::{
 };
 use rustnn::shape_inference::{broadcast_shapes, infer_matmul_shape, validate_reshape};
 use rustnn::validator::GraphValidator;
+use rustnn::Operation;
 use std::collections::HashMap;
 
 /// Builder for constructing WebNN computational graphs
@@ -198,7 +198,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -282,7 +281,6 @@ impl PyMLGraphBuilder {
             options: Some(gemm_options),
             outputs: vec![output_id],
         });
-
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -404,7 +402,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -520,7 +517,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -614,7 +610,6 @@ impl PyMLGraphBuilder {
             options: Some(pool_opts),
             outputs: vec![output_id],
         });
-
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -710,7 +705,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -789,7 +783,6 @@ impl PyMLGraphBuilder {
             options: Some(pool_opts),
             outputs: vec![output_id],
         });
-
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -870,7 +863,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -930,7 +922,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -984,7 +975,6 @@ impl PyMLGraphBuilder {
             options: Some(inst_options),
             outputs: vec![output_id],
         });
-
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -1057,7 +1047,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -1121,7 +1110,6 @@ impl PyMLGraphBuilder {
             options: None,
             outputs: vec![output_id],
         });
-
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -1289,7 +1277,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -1328,7 +1315,6 @@ impl PyMLGraphBuilder {
             options: None,
             outputs: vec![output_id],
         });
-
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -1369,7 +1355,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -1408,7 +1393,6 @@ impl PyMLGraphBuilder {
             options: None,
             outputs: vec![output_id],
         });
-
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -1449,7 +1433,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -1484,7 +1467,6 @@ impl PyMLGraphBuilder {
             options: None,
             outputs: vec![output_id],
         });
-
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -1525,7 +1507,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -1565,7 +1546,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -1604,7 +1584,6 @@ impl PyMLGraphBuilder {
             options: None,
             outputs: vec![output_id],
         });
-
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -1651,7 +1630,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -1697,7 +1675,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -1735,7 +1712,6 @@ impl PyMLGraphBuilder {
             options: None,
             outputs: vec![output_id],
         });
-
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -2010,7 +1986,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -2071,7 +2046,6 @@ impl PyMLGraphBuilder {
             options: None,
             outputs: vec![output_id],
         });
-
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -2145,11 +2119,7 @@ impl PyMLGraphBuilder {
             .map(|s| s.iter().map(|&x| x as u32).collect())
             .unwrap_or_default();
 
-        let sizes_dims: Vec<MLDimension> = sizes
-            .iter()
-            .copied()
-            .map(MLDimension::Static)
-            .collect();
+        let sizes_dims: Vec<MLDimension> = sizes.iter().copied().map(MLDimension::Static).collect();
 
         let slice_opts = MLSliceOptions {
             label: String::new(),
@@ -2163,7 +2133,6 @@ impl PyMLGraphBuilder {
             options: Some(slice_opts),
             outputs: vec![output_id],
         });
-
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -2213,7 +2182,6 @@ impl PyMLGraphBuilder {
             options: None,
             outputs: vec![output_id],
         });
-
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -2277,7 +2245,6 @@ impl PyMLGraphBuilder {
             options: Some(gather_opts),
             outputs: vec![output_id],
         });
-
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -2375,7 +2342,6 @@ impl PyMLGraphBuilder {
             outputs: output_ids,
         });
 
-
         Ok(py_operands)
     }
 
@@ -2423,7 +2389,6 @@ impl PyMLGraphBuilder {
             options: None,
             outputs: vec![output_id],
         });
-
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -2500,7 +2465,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -2540,7 +2504,6 @@ impl PyMLGraphBuilder {
             options: None,
             outputs: vec![output_id],
         });
-
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -2591,7 +2554,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -2638,7 +2600,6 @@ impl PyMLGraphBuilder {
             options: Some(unsqueeze_opts),
             outputs: vec![output_id],
         });
-
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -2714,7 +2675,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -2789,7 +2749,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -2848,7 +2807,6 @@ impl PyMLGraphBuilder {
             options: None,
             outputs: vec![output_id],
         });
-
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -2957,7 +2915,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -3014,7 +2971,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -3059,7 +3015,6 @@ impl PyMLGraphBuilder {
             options: None,
             outputs: vec![output_id],
         });
-
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -3116,7 +3071,6 @@ impl PyMLGraphBuilder {
             options: Some(tri_opts),
             outputs: vec![output_id],
         });
-
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -3175,7 +3129,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -3224,7 +3177,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -3269,7 +3221,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -3313,7 +3264,6 @@ impl PyMLGraphBuilder {
             options: None,
             outputs: vec![output_id],
         });
-
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -3384,7 +3334,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -3436,7 +3385,6 @@ impl PyMLGraphBuilder {
             options: Some(elu_opts),
             outputs: vec![output_id],
         });
-
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -3490,7 +3438,6 @@ impl PyMLGraphBuilder {
             outputs: vec![output_id],
         });
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -3540,7 +3487,6 @@ impl PyMLGraphBuilder {
             options: None,
             outputs: vec![output_id],
         });
-
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -3630,7 +3576,6 @@ impl PyMLGraphBuilder {
             }
         };
         self.push_op(op);
-
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -3759,7 +3704,6 @@ impl PyMLGraphBuilder {
         };
         self.push_op(op);
 
-
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
             kind: OperandKind::Output,
@@ -3867,7 +3811,6 @@ impl PyMLGraphBuilder {
             }
         };
         self.push_op(op);
-
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
