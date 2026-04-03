@@ -554,6 +554,16 @@ def test_wpt_conformance(context, backend_name, wpt_test_case, operation):
             if len(shape) == 0 or (len(shape) == 1 and shape[0] == 1 and "0D" in test_name):
                 pytest.skip("CoreML limitation: tile operation doesn't support scalar (0D) inputs")
 
+    # Skip reshape to scalar (empty shape) on CoreML (CoreML reshape requires non-empty shape param)
+    if backend_name == "coreml" and operation == "reshape":
+        graph_desc = wpt_test_case.get("graph", {})
+        expected_outputs = graph_desc.get("expectedOutputs", wpt_test_case.get("expectedOutputs", {}))
+        for output_spec in expected_outputs.values():
+            descriptor = output_spec.get("descriptor", output_spec)
+            shape = descriptor.get("shape", [1])
+            if len(shape) == 0:
+                pytest.skip("CoreML limitation: reshape to scalar (empty shape) not supported")
+
     # Skip hard_swish 0D scalar operations on CoreML (CoreML mul doesn't support scalar outputs correctly)
     if backend_name == "coreml" and operation == "hard_swish":
         # Check if this is a 0D scalar
