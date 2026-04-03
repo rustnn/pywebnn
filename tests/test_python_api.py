@@ -407,23 +407,6 @@ def test_floor_computation(context, builder):
 
 
 @requires_onnx_runtime
-def test_round_computation(context, builder):
-    """Test element-wise rounding"""
-    x = builder.input("x", [2, 3], "float32")
-    y = builder.round(x)
-    graph = builder.build({"y": y})
-
-    x_data = np.array([[-1.5, 2.3, -3.7], [4.6, -5.4, 0.5]], dtype=np.float32)
-
-    results = context.compute(graph, {"x": x_data})
-    assert "y" in results
-    assert results["y"].shape == (2, 3)
-
-    expected = np.round(x_data)
-    np.testing.assert_allclose(results["y"], expected, rtol=1e-5)
-
-
-@requires_onnx_runtime
 def test_neg_computation(context, builder):
     """Test element-wise negation"""
     x = builder.input("x", [2, 3], "float32")
@@ -578,144 +561,6 @@ def test_tan_computation(context, builder):
 
     expected = np.tan(x_data)
     np.testing.assert_allclose(results["y"], expected, rtol=1e-5, atol=1e-7)
-
-
-@requires_onnx_runtime
-def test_asin_computation(context, builder):
-    """Test element-wise arcsine"""
-    x = builder.input("x", [2, 3], "float32")
-    y = builder.asin(x)
-    graph = builder.build({"y": y})
-
-    x_data = np.array([[0.0, 0.5, -0.5], [0.707, -0.707, 1.0]], dtype=np.float32)
-
-    results = context.compute(graph, {"x": x_data})
-    assert "y" in results
-    assert results["y"].shape == (2, 3)
-
-    expected = np.arcsin(x_data)
-    np.testing.assert_allclose(results["y"], expected, rtol=1e-5, atol=1e-7)
-
-
-@requires_onnx_runtime
-def test_acos_computation(context, builder):
-    """Test element-wise arccosine"""
-    x = builder.input("x", [2, 3], "float32")
-    y = builder.acos(x)
-    graph = builder.build({"y": y})
-
-    x_data = np.array([[0.0, 0.5, -0.5], [0.707, -0.707, 1.0]], dtype=np.float32)
-
-    results = context.compute(graph, {"x": x_data})
-    assert "y" in results
-    assert results["y"].shape == (2, 3)
-
-    expected = np.arccos(x_data)
-    np.testing.assert_allclose(results["y"], expected, rtol=1e-5, atol=1e-7)
-
-
-@requires_onnx_runtime
-def test_atan_computation(context, builder):
-    """Test element-wise arctangent"""
-    x = builder.input("x", [2, 3], "float32")
-    y = builder.atan(x)
-    graph = builder.build({"y": y})
-
-    x_data = np.array([[0.0, 1.0, -1.0], [2.0, -2.0, 0.5]], dtype=np.float32)
-
-    results = context.compute(graph, {"x": x_data})
-    assert "y" in results
-    assert results["y"].shape == (2, 3)
-
-    expected = np.arctan(x_data)
-    np.testing.assert_allclose(results["y"], expected, rtol=1e-5, atol=1e-7)
-
-
-# Hyperbolic operations
-
-@requires_onnx_runtime
-def test_sinh_computation(context, builder):
-    """Test element-wise hyperbolic sine"""
-    x = builder.input("x", [2, 3], "float32")
-    y = builder.sinh(x)
-    graph = builder.build({"y": y})
-
-    x_data = np.array([[0.0, 1.0, -1.0], [0.5, -0.5, 2.0]], dtype=np.float32)
-
-    results = context.compute(graph, {"x": x_data})
-    assert "y" in results
-    assert results["y"].shape == (2, 3)
-
-    expected = np.sinh(x_data)
-    np.testing.assert_allclose(results["y"], expected, rtol=1e-5)
-
-
-@requires_onnx_runtime
-def test_cosh_computation(context, builder):
-    """Test element-wise hyperbolic cosine"""
-    x = builder.input("x", [2, 3], "float32")
-    y = builder.cosh(x)
-    graph = builder.build({"y": y})
-
-    x_data = np.array([[0.0, 1.0, -1.0], [0.5, -0.5, 2.0]], dtype=np.float32)
-
-    results = context.compute(graph, {"x": x_data})
-    assert "y" in results
-    assert results["y"].shape == (2, 3)
-
-    expected = np.cosh(x_data)
-    np.testing.assert_allclose(results["y"], expected, rtol=1e-5)
-
-
-@requires_onnx_runtime
-def test_asinh_computation(context, builder):
-    """Test element-wise hyperbolic arcsine"""
-    x = builder.input("x", [2, 3], "float32")
-    y = builder.asinh(x)
-    graph = builder.build({"y": y})
-
-    x_data = np.array([[0.0, 1.0, -1.0], [2.0, -2.0, 0.5]], dtype=np.float32)
-
-    results = context.compute(graph, {"x": x_data})
-    assert "y" in results
-    assert results["y"].shape == (2, 3)
-
-    expected = np.arcsinh(x_data)
-    np.testing.assert_allclose(results["y"], expected, rtol=1e-5)
-
-
-@requires_onnx_runtime
-def test_acosh_computation(context, builder):
-    """Test element-wise hyperbolic arccosine"""
-    x = builder.input("x", [2, 3], "float32")
-    y = builder.acosh(x)
-    graph = builder.build({"y": y})
-
-    x_data = np.array([[1.0, 2.0, 3.0], [1.5, 5.0, 10.0]], dtype=np.float32)
-
-    results = context.compute(graph, {"x": x_data})
-    assert "y" in results
-    assert results["y"].shape == (2, 3)
-
-    expected = np.arccosh(x_data)
-    np.testing.assert_allclose(results["y"], expected, rtol=1e-5)
-
-
-@requires_onnx_runtime
-def test_atanh_computation(context, builder):
-    """Test element-wise hyperbolic arctangent"""
-    x = builder.input("x", [2, 3], "float32")
-    y = builder.atanh(x)
-    graph = builder.build({"y": y})
-
-    x_data = np.array([[0.0, 0.5, -0.5], [0.3, -0.3, 0.9]], dtype=np.float32)
-
-    results = context.compute(graph, {"x": x_data})
-    assert "y" in results
-    assert results["y"].shape == (2, 3)
-
-    expected = np.arctanh(x_data)
-    np.testing.assert_allclose(results["y"], expected, rtol=1e-5)
 
 
 # Special operations
@@ -3620,7 +3465,7 @@ def test_op_support_limits_unary_operations(context):
     unary_ops = [
         "relu", "sigmoid", "tanh", "softmax", "gelu",
         "abs", "ceil", "floor", "exp", "log", "sqrt",
-        "sin", "cos", "tan", "sinh", "cosh"
+        "sin", "cos", "tan"
     ]
 
     for op in unary_ops:

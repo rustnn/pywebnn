@@ -815,7 +815,6 @@ impl PyMLContext {
         result.set_item("abs", create_single_input_limits(py)?)?;
         result.set_item("ceil", create_single_input_limits(py)?)?;
         result.set_item("floor", create_single_input_limits(py)?)?;
-        result.set_item("round", create_single_input_limits(py)?)?;
         result.set_item("neg", create_single_input_limits(py)?)?;
         result.set_item("sign", create_single_input_limits(py)?)?;
         result.set_item("reciprocal", create_single_input_limits(py)?)?;
@@ -828,17 +827,7 @@ impl PyMLContext {
         result.set_item("sin", create_single_input_limits(py)?)?;
         result.set_item("cos", create_single_input_limits(py)?)?;
         result.set_item("tan", create_single_input_limits(py)?)?;
-        result.set_item("asin", create_single_input_limits(py)?)?;
-        result.set_item("acos", create_single_input_limits(py)?)?;
-        result.set_item("atan", create_single_input_limits(py)?)?;
-
-        // Hyperbolic operations
-        result.set_item("sinh", create_single_input_limits(py)?)?;
-        result.set_item("cosh", create_single_input_limits(py)?)?;
         result.set_item("tanh", create_single_input_limits(py)?)?;
-        result.set_item("asinh", create_single_input_limits(py)?)?;
-        result.set_item("acosh", create_single_input_limits(py)?)?;
-        result.set_item("atanh", create_single_input_limits(py)?)?;
 
         // Type conversion
         let cast_limits = PyDict::new_bound(py);

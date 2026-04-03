@@ -1141,11 +1141,6 @@ impl PyMLGraphBuilder {
         self.unary_op("floor", x)
     }
 
-    /// Element-wise rounding to nearest integer
-    fn round(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
-        self.unary_op("round", x)
-    }
-
     /// Element-wise negation
     fn neg(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
         self.unary_op("neg", x)
@@ -1193,48 +1188,6 @@ impl PyMLGraphBuilder {
     /// Element-wise tangent
     fn tan(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
         self.unary_op("tan", x)
-    }
-
-    /// Element-wise arcsine
-    fn asin(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
-        self.unary_op("asin", x)
-    }
-
-    /// Element-wise arccosine
-    fn acos(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
-        self.unary_op("acos", x)
-    }
-
-    /// Element-wise arctangent
-    fn atan(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
-        self.unary_op("atan", x)
-    }
-
-    // Element-wise operations - Hyperbolic
-
-    /// Element-wise hyperbolic sine
-    fn sinh(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
-        self.unary_op("sinh", x)
-    }
-
-    /// Element-wise hyperbolic cosine
-    fn cosh(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
-        self.unary_op("cosh", x)
-    }
-
-    /// Element-wise hyperbolic arcsine
-    fn asinh(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
-        self.unary_op("asinh", x)
-    }
-
-    /// Element-wise hyperbolic arccosine
-    fn acosh(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
-        self.unary_op("acosh", x)
-    }
-
-    /// Element-wise hyperbolic arctangent
-    fn atanh(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
-        self.unary_op("atanh", x)
     }
 
     // Element-wise operations - Special functions
@@ -3681,16 +3634,6 @@ impl PyMLGraphBuilder {
                 outputs,
             },
             "sign" => Operation::Sign {
-                input,
-                options: None,
-                outputs,
-            },
-            "round" => Operation::RoundEven {
-                input,
-                options: None,
-                outputs,
-            },
-            "roundEven" => Operation::RoundEven {
                 input,
                 options: None,
                 outputs,
