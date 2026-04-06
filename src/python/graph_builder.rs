@@ -11,20 +11,19 @@ use super::operand::{parse_data_type, PyMLOperand};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use rustnn::graph::{
-    to_dimension_vector, ConstantData, DataType, GraphInfo, Operand, OperandDescriptor,
-    OperandKind, Operation,
+    to_dimension_vector, ConstantData, DataType, GraphInfo, Operand, OperandDescriptor, OperandKind,
 };
 use rustnn::operator_options::{
-    MLArgMinMaxOptions, MLBatchNormalizationOptions, MLCastOptions, MLClampOptions,
-    MLConcatOptions, MLConv2dOptions, MLConvTranspose2dOptions, MLDimension, MLEluOptions,
-    MLExpandOptions, MLGatherOptions, MLGemmOptions, MLHardSigmoidOptions, MLHardSwishOptions,
-    MLInstanceNormalizationOptions, MLLayerNormalizationOptions, MLLeakyReluOptions, MLPadOptions,
-    MLPool2dOptions, MLReduceOptions, MLReshapeOptions, MLScatterOptions, MLSliceOptions,
-    MLSoftmaxOptions, MLSplitOptions, MLSqueezeOptions, MLTileOptions, MLTransposeOptions,
-    MLTriangularOptions, MLUnsqueezeOptions, OperatorOptions,
+    MLArgMinMaxOptions, MLBatchNormalizationOptions, MLClampOptions, MLConv2dOptions,
+    MLConvTranspose2dOptions, MLDimension, MLEluOptions, MLGatherOptions, MLGemmOptions,
+    MLHardSigmoidOptions, MLInstanceNormalizationOptions, MLLayerNormalizationOptions,
+    MLLeakyReluOptions, MLPadOptions, MLPool2dOptions, MLReduceOptions, MLScatterOptions,
+    MLSliceOptions, MLSplitOptions, MLSqueezeOptions, MLTransposeOptions, MLTriangularOptions,
+    MLUnsqueezeOptions,
 };
 use rustnn::shape_inference::{broadcast_shapes, infer_matmul_shape, validate_reshape};
 use rustnn::validator::GraphValidator;
+use rustnn::Operation;
 use std::collections::HashMap;
 
 /// Builder for constructing WebNN computational graphs
@@ -192,16 +191,12 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let operation = Operation {
-            op_type: "matmul".to_string(),
-            input_operands: vec![a.id, b.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes: OperatorOptions::default(),
-            label: None,
-        };
-
-        self.operations.push(operation);
+        self.push_op(Operation::Matmul {
+            a: a.id,
+            b: b.id,
+            options: None,
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -269,31 +264,23 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let mut input_operands = vec![a.id, b.id];
         let c_operand_id = c.as_ref().map(|o| o.id);
-        if let Some(c_operand) = c {
-            input_operands.push(c_operand.id);
-        }
 
-        let attributes = OperatorOptions::Gemm(MLGemmOptions {
+        let gemm_options = MLGemmOptions {
             label: String::new(),
             c: c_operand_id,
             alpha: alpha as f64,
             beta: beta as f64,
             a_transpose,
             b_transpose,
-        });
-
-        let operation = Operation {
-            op_type: "gemm".to_string(),
-            input_operands,
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
         };
 
-        self.operations.push(operation);
+        self.push_op(Operation::Gemm {
+            a: a.id,
+            b: b.id,
+            options: Some(gemm_options),
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -397,13 +384,7 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        // Build input_operands list: [input, filter, bias?]
-        let mut input_operands = vec![input.id, filter.id];
-        if let Some(bias_op) = bias {
-            input_operands.push(bias_op.id);
-        }
-
-        let attributes = OperatorOptions::Conv2d(MLConv2dOptions {
+        let conv2d_options = MLConv2dOptions {
             label: String::new(),
             padding: pads,
             strides,
@@ -412,18 +393,14 @@ impl PyMLGraphBuilder {
             input_layout: input_layout.unwrap_or("nchw").to_string(),
             filter_layout: filter_layout.unwrap_or("oihw").to_string(),
             bias: bias.map(|b| b.id),
-        });
-
-        let operation = Operation {
-            op_type: "conv2d".to_string(),
-            input_operands,
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
         };
 
-        self.operations.push(operation);
+        self.push_op(Operation::Conv2d {
+            input: input.id,
+            filter: filter.id,
+            options: Some(conv2d_options),
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -520,13 +497,7 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        // Build input_operands list: [input, filter, bias?]
-        let mut input_operands = vec![input.id, filter.id];
-        if let Some(bias_op) = bias {
-            input_operands.push(bias_op.id);
-        }
-
-        let attributes = OperatorOptions::ConvTranspose2d(MLConvTranspose2dOptions {
+        let conv_t_options = MLConvTranspose2dOptions {
             label: String::new(),
             padding: pads,
             strides,
@@ -537,18 +508,14 @@ impl PyMLGraphBuilder {
             input_layout: input_layout.unwrap_or("nchw").to_string(),
             filter_layout: filter_layout.unwrap_or("iohw").to_string(),
             bias: bias.map(|b| b.id),
-        });
-
-        let operation = Operation {
-            op_type: "convTranspose2d".to_string(),
-            input_operands,
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
         };
 
-        self.operations.push(operation);
+        self.push_op(Operation::ConvTranspose2d {
+            input: input.id,
+            filter: filter.id,
+            options: Some(conv_t_options),
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -627,7 +594,7 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = OperatorOptions::Pool2d(MLPool2dOptions {
+        let pool_opts = MLPool2dOptions {
             label: String::new(),
             window_dimensions: Some(window_dimensions),
             padding: pads,
@@ -636,18 +603,13 @@ impl PyMLGraphBuilder {
             layout: layout.unwrap_or("nchw").to_string(),
             output_shape_rounding: String::new(),
             output_sizes: None,
-        });
-
-        let operation = Operation {
-            op_type: "averagePool2d".to_string(),
-            input_operands: vec![input.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
         };
 
-        self.operations.push(operation);
+        self.push_op(Operation::AveragePool2d {
+            input: input.id,
+            options: Some(pool_opts),
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -726,7 +688,7 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = OperatorOptions::Pool2d(MLPool2dOptions {
+        let pool_opts = MLPool2dOptions {
             label: String::new(),
             window_dimensions: Some(window_dimensions),
             padding: pads,
@@ -735,18 +697,13 @@ impl PyMLGraphBuilder {
             layout: layout.unwrap_or("nchw").to_string(),
             output_shape_rounding: String::new(),
             output_sizes: None,
-        });
-
-        let operation = Operation {
-            op_type: "maxPool2d".to_string(),
-            input_operands: vec![input.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
         };
 
-        self.operations.push(operation);
+        self.push_op(Operation::MaxPool2d {
+            input: input.id,
+            options: Some(pool_opts),
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -810,7 +767,7 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = OperatorOptions::Pool2d(MLPool2dOptions {
+        let pool_opts = MLPool2dOptions {
             label: String::new(),
             window_dimensions: None,
             padding: vec![],
@@ -819,18 +776,13 @@ impl PyMLGraphBuilder {
             layout: layout.unwrap_or("nchw").to_string(),
             output_shape_rounding: String::new(),
             output_sizes: None,
-        });
-
-        let operation = Operation {
-            op_type: "globalAveragePool".to_string(),
-            input_operands: vec![input.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
         };
 
-        self.operations.push(operation);
+        self.push_op(Operation::GlobalAveragePool {
+            input: input.id,
+            options: Some(pool_opts),
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -894,7 +846,7 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = OperatorOptions::Pool2d(MLPool2dOptions {
+        let pool_opts = MLPool2dOptions {
             label: String::new(),
             window_dimensions: None,
             padding: vec![],
@@ -903,18 +855,13 @@ impl PyMLGraphBuilder {
             layout: layout.unwrap_or("nchw").to_string(),
             output_shape_rounding: String::new(),
             output_sizes: None,
-        });
-
-        let operation = Operation {
-            op_type: "globalMaxPool".to_string(),
-            input_operands: vec![input.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
         };
 
-        self.operations.push(operation);
+        self.push_op(Operation::GlobalMaxPool {
+            input: input.id,
+            options: Some(pool_opts),
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -959,33 +906,21 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        // Build input operands list
-        let mut input_operands = vec![input.id, mean.id, variance.id];
-        if let Some(s) = scale {
-            input_operands.push(s.id);
-        }
-        if let Some(b) = bias {
-            input_operands.push(b.id);
-        }
-
-        let attributes = OperatorOptions::BatchNormalization(MLBatchNormalizationOptions {
+        let bn_options = MLBatchNormalizationOptions {
             label: String::new(),
             scale: scale.map(|s| s.id),
             bias: bias.map(|b| b.id),
             axis,
             epsilon: epsilon as f64,
-        });
-
-        let operation = Operation {
-            op_type: "batchNormalization".to_string(),
-            input_operands,
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
         };
 
-        self.operations.push(operation);
+        self.push_op(Operation::BatchNormalization {
+            input: input.id,
+            mean: mean.id,
+            variance: variance.id,
+            options: Some(bn_options),
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -1027,35 +962,19 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        // Build input operands list
-        let mut input_operands = vec![input.id];
-        if let Some(s) = scale {
-            input_operands.push(s.id);
-        }
-        if let Some(b) = bias {
-            input_operands.push(b.id);
-        }
-
-        let attributes = OperatorOptions::InstanceNormalization(MLInstanceNormalizationOptions {
+        let inst_options = MLInstanceNormalizationOptions {
             label: String::new(),
             scale: scale.map(|s| s.id),
             bias: bias.map(|b| b.id),
-            has_scale: Some(scale.is_some()),
-            has_bias: Some(bias.is_some()),
             epsilon: epsilon as f64,
             layout: layout.unwrap_or("nchw").to_string(),
-        });
-
-        let operation = Operation {
-            op_type: "instanceNormalization".to_string(),
-            input_operands,
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
         };
 
-        self.operations.push(operation);
+        self.push_op(Operation::InstanceNormalization {
+            input: input.id,
+            options: Some(inst_options),
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -1096,15 +1015,6 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        // Build input operands list
-        let mut input_operands = vec![input.id];
-        if let Some(s) = scale {
-            input_operands.push(s.id);
-        }
-        if let Some(b) = bias {
-            input_operands.push(b.id);
-        }
-
         // When axes are omitted, infer them from scale/bias rank so ONNX axis aligns
         // with X.shape[axis:] for broadcast-compatible operands.
         let norm_axes: Vec<u32> = if let Some(axes) = axes {
@@ -1123,26 +1033,19 @@ impl PyMLGraphBuilder {
             }
         };
 
-        let attributes = OperatorOptions::LayerNormalization(MLLayerNormalizationOptions {
+        let layer_options = MLLayerNormalizationOptions {
             label: String::new(),
             scale: scale.map(|s| s.id),
             bias: bias.map(|b| b.id),
-            has_scale: Some(scale.is_some()),
-            has_bias: Some(bias.is_some()),
             axes: Some(norm_axes),
             epsilon: epsilon as f64,
-        });
-
-        let operation = Operation {
-            op_type: "layerNormalization".to_string(),
-            input_operands,
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
         };
 
-        self.operations.push(operation);
+        self.push_op(Operation::LayerNormalization {
+            input: input.id,
+            options: Some(layer_options),
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -1201,19 +1104,12 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let operation = Operation {
-            op_type: "softmax".to_string(),
-            input_operands: vec![x.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes: OperatorOptions::Softmax(MLSoftmaxOptions {
-                label: String::new(),
-                axis,
-            }),
-            label: None,
-        };
-
-        self.operations.push(operation);
+        self.push_op(Operation::Softmax {
+            input: x.id,
+            axis,
+            options: None,
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -1243,11 +1139,6 @@ impl PyMLGraphBuilder {
     /// Element-wise floor (round down)
     fn floor(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
         self.unary_op("floor", x)
-    }
-
-    /// Element-wise rounding to nearest integer
-    fn round(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
-        self.unary_op("round", x)
     }
 
     /// Element-wise negation
@@ -1299,48 +1190,6 @@ impl PyMLGraphBuilder {
         self.unary_op("tan", x)
     }
 
-    /// Element-wise arcsine
-    fn asin(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
-        self.unary_op("asin", x)
-    }
-
-    /// Element-wise arccosine
-    fn acos(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
-        self.unary_op("acos", x)
-    }
-
-    /// Element-wise arctangent
-    fn atan(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
-        self.unary_op("atan", x)
-    }
-
-    // Element-wise operations - Hyperbolic
-
-    /// Element-wise hyperbolic sine
-    fn sinh(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
-        self.unary_op("sinh", x)
-    }
-
-    /// Element-wise hyperbolic cosine
-    fn cosh(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
-        self.unary_op("cosh", x)
-    }
-
-    /// Element-wise hyperbolic arcsine
-    fn asinh(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
-        self.unary_op("asinh", x)
-    }
-
-    /// Element-wise hyperbolic arccosine
-    fn acosh(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
-        self.unary_op("acosh", x)
-    }
-
-    /// Element-wise hyperbolic arctangent
-    fn atanh(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
-        self.unary_op("atanh", x)
-    }
-
     // Element-wise operations - Special functions
 
     /// Element-wise error function
@@ -1374,16 +1223,12 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let operation = Operation {
-            op_type: "equal".to_string(),
-            input_operands: vec![a.id, b.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes: OperatorOptions::default(),
-            label: None,
-        };
-
-        self.operations.push(operation);
+        self.push_op(Operation::Equal {
+            a: a.id,
+            b: b.id,
+            options: None,
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -1417,16 +1262,12 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let operation = Operation {
-            op_type: "greater".to_string(),
-            input_operands: vec![a.id, b.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes: OperatorOptions::default(),
-            label: None,
-        };
-
-        self.operations.push(operation);
+        self.push_op(Operation::Greater {
+            a: a.id,
+            b: b.id,
+            options: None,
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -1460,16 +1301,12 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let operation = Operation {
-            op_type: "greaterOrEqual".to_string(),
-            input_operands: vec![a.id, b.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes: OperatorOptions::default(),
-            label: None,
-        };
-
-        self.operations.push(operation);
+        self.push_op(Operation::GreaterOrEqual {
+            a: a.id,
+            b: b.id,
+            options: None,
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -1503,16 +1340,12 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let operation = Operation {
-            op_type: "lesser".to_string(),
-            input_operands: vec![a.id, b.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes: OperatorOptions::default(),
-            label: None,
-        };
-
-        self.operations.push(operation);
+        self.push_op(Operation::Lesser {
+            a: a.id,
+            b: b.id,
+            options: None,
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -1546,16 +1379,12 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let operation = Operation {
-            op_type: "lesserOrEqual".to_string(),
-            input_operands: vec![a.id, b.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes: OperatorOptions::default(),
-            label: None,
-        };
-
-        self.operations.push(operation);
+        self.push_op(Operation::LesserOrEqual {
+            a: a.id,
+            b: b.id,
+            options: None,
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -1586,16 +1415,11 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let operation = Operation {
-            op_type: "logicalNot".to_string(),
-            input_operands: vec![x.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes: OperatorOptions::default(),
-            label: None,
-        };
-
-        self.operations.push(operation);
+        self.push_op(Operation::LogicalNot {
+            input: x.id,
+            options: None,
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -1629,16 +1453,12 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let operation = Operation {
-            op_type: "logicalAnd".to_string(),
-            input_operands: vec![a.id, b.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes: OperatorOptions::default(),
-            label: None,
-        };
-
-        self.operations.push(operation);
+        self.push_op(Operation::LogicalAnd {
+            a: a.id,
+            b: b.id,
+            options: None,
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -1672,16 +1492,12 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let operation = Operation {
-            op_type: "logicalOr".to_string(),
-            input_operands: vec![a.id, b.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes: OperatorOptions::default(),
-            label: None,
-        };
-
-        self.operations.push(operation);
+        self.push_op(Operation::LogicalOr {
+            a: a.id,
+            b: b.id,
+            options: None,
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -1715,16 +1531,12 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let operation = Operation {
-            op_type: "logicalXor".to_string(),
-            input_operands: vec![a.id, b.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes: OperatorOptions::default(),
-            label: None,
-        };
-
-        self.operations.push(operation);
+        self.push_op(Operation::LogicalXor {
+            a: a.id,
+            b: b.id,
+            options: None,
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -1763,16 +1575,13 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let operation = Operation {
-            op_type: "dequantizeLinear".to_string(),
-            input_operands: vec![input.id, scale.id, zero_point.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes: OperatorOptions::default(),
-            label: None,
-        };
-
-        self.operations.push(operation);
+        self.push_op(Operation::DequantizeLinear {
+            input: input.id,
+            scale: scale.id,
+            zero_point: Some(zero_point.id),
+            options: None,
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -1811,16 +1620,13 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let operation = Operation {
-            op_type: "quantizeLinear".to_string(),
-            input_operands: vec![input.id, scale.id, zero_point.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes: OperatorOptions::default(),
-            label: None,
-        };
-
-        self.operations.push(operation);
+        self.push_op(Operation::QuantizeLinear {
+            input: input.id,
+            scale: scale.id,
+            zero_point: Some(zero_point.id),
+            options: None,
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -1850,21 +1656,15 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = OperatorOptions::Reshape(MLReshapeOptions {
-            label: String::new(),
-            new_shape: new_shape.iter().map(|&d| MLDimension::Static(d)).collect(),
+        let reshape_new_shape: Vec<MLDimension> =
+            new_shape.iter().map(|&d| MLDimension::Static(d)).collect();
+
+        self.push_op(Operation::Reshape {
+            input: x.id,
+            new_shape: reshape_new_shape,
+            options: None,
+            outputs: vec![output_id],
         });
-
-        let operation = Operation {
-            op_type: "reshape".to_string(),
-            input_operands: vec![x.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
-        };
-
-        self.operations.push(operation);
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -2128,21 +1928,16 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = OperatorOptions::Transpose(MLTransposeOptions {
+        let transpose_opts = MLTransposeOptions {
             label: String::new(),
             permutation: permutation.unwrap_or_default(),
-        });
-
-        let operation = Operation {
-            op_type: "transpose".to_string(),
-            input_operands: vec![input.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
         };
 
-        self.operations.push(operation);
+        self.push_op(Operation::Transpose {
+            input: input.id,
+            options: Some(transpose_opts),
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -2198,21 +1993,12 @@ impl PyMLGraphBuilder {
         // Collect input IDs
         let input_ids: Vec<u32> = inputs.iter().map(|op| op.id).collect();
 
-        let attributes = OperatorOptions::Concat(MLConcatOptions {
-            label: String::new(),
+        self.push_op(Operation::Concat {
+            inputs: input_ids,
             axis,
+            options: None,
+            outputs: vec![output_id],
         });
-
-        let operation = Operation {
-            op_type: "concat".to_string(),
-            input_operands: input_ids,
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
-        };
-
-        self.operations.push(operation);
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -2286,23 +2072,20 @@ impl PyMLGraphBuilder {
             .map(|s| s.iter().map(|&x| x as u32).collect())
             .unwrap_or_default();
 
-        let attributes = OperatorOptions::Slice(MLSliceOptions {
-            label: String::new(),
-            starts,
-            sizes: sizes.iter().map(|&d| MLDimension::Static(d)).collect(),
-            strides: strides_vec,
-        });
+        let sizes_dims: Vec<MLDimension> = sizes.iter().copied().map(MLDimension::Static).collect();
 
-        let operation = Operation {
-            op_type: "slice".to_string(),
-            input_operands: vec![input.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
+        let slice_opts = MLSliceOptions {
+            label: String::new(),
+            strides: strides_vec,
         };
 
-        self.operations.push(operation);
+        self.push_op(Operation::Slice {
+            input: input.id,
+            starts,
+            sizes: sizes_dims,
+            options: Some(slice_opts),
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -2343,22 +2126,15 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = OperatorOptions::Expand(MLExpandOptions {
-            label: String::new(),
-            new_shape: new_shape.iter().map(|&d| MLDimension::Static(d)).collect(),
-            axes: vec![],
+        let expand_new_shape: Vec<MLDimension> =
+            new_shape.iter().map(|&d| MLDimension::Static(d)).collect();
+
+        self.push_op(Operation::Expand {
+            input: input.id,
+            new_shape: expand_new_shape,
+            options: None,
+            outputs: vec![output_id],
         });
-
-        let operation = Operation {
-            op_type: "expand".to_string(),
-            input_operands: vec![input.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
-        };
-
-        self.operations.push(operation);
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -2410,22 +2186,18 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = OperatorOptions::Gather(MLGatherOptions {
+        let gather_opts = MLGatherOptions {
             label: String::new(),
             axis,
-            batch_dimensions: None,
-        });
-
-        let operation = Operation {
-            op_type: "gather".to_string(),
-            input_operands: vec![input.id, indices.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
         };
 
-        self.operations.push(operation);
+        self.push_op(Operation::Gather {
+            input: input.id,
+            indices: indices.id,
+            batch_dimensions: None,
+            options: Some(gather_opts),
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -2505,29 +2277,23 @@ impl PyMLGraphBuilder {
             output_ids.push(output_id);
         }
 
-        let attributes = match &split_spec {
-            SplitSpec::Count(_) => OperatorOptions::Split(MLSplitOptions {
-                label: String::new(),
-                axis,
-                splits: vec![], // equal-split count; converters use output count
-            }),
-            SplitSpec::Sizes(sizes) => OperatorOptions::Split(MLSplitOptions {
-                label: String::new(),
-                axis,
-                splits: sizes.clone(),
-            }),
+        let split_opts = MLSplitOptions {
+            label: String::new(),
+            axis,
         };
 
-        let operation = Operation {
-            op_type: "split".to_string(),
-            input_operands: vec![input.id],
-            output_operand: None,
-            output_operands: output_ids,
-            attributes,
-            label: None,
+        let (splits, split_equal_parts) = match &split_spec {
+            SplitSpec::Count(n) => (Vec::new(), Some(*n)),
+            SplitSpec::Sizes(sizes) => (sizes.clone(), None),
         };
 
-        self.operations.push(operation);
+        self.push_op(Operation::Split {
+            input: input.id,
+            splits,
+            split_equal_parts,
+            options: Some(split_opts),
+            outputs: output_ids,
+        });
 
         Ok(py_operands)
     }
@@ -2569,16 +2335,13 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let operation = Operation {
-            op_type: "where".to_string(),
-            input_operands: vec![condition.id, true_value.id, false_value.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes: OperatorOptions::default(),
-            label: None,
-        };
-
-        self.operations.push(operation);
+        self.push_op(Operation::Where {
+            condition: condition.id,
+            true_value: true_value.id,
+            false_value: false_value.id,
+            options: None,
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -2641,24 +2404,19 @@ impl PyMLGraphBuilder {
         let beginning_padding = padding[..half].to_vec();
         let ending_padding = padding[half..].to_vec();
 
-        let attributes = OperatorOptions::Pad(MLPadOptions {
+        let pad_opts = MLPadOptions {
             label: String::new(),
             mode: mode_str.to_string(),
             value: value.map(serde_json::Value::from),
-            beginning_padding,
-            ending_padding,
-        });
-
-        let operation = Operation {
-            op_type: "pad".to_string(),
-            input_operands: vec![input.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
         };
 
-        self.operations.push(operation);
+        self.push_op(Operation::Pad {
+            input: input.id,
+            beginning_padding,
+            ending_padding,
+            options: Some(pad_opts),
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -2694,16 +2452,11 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let operation = Operation {
-            op_type: "gelu".to_string(),
-            input_operands: vec![input.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes: OperatorOptions::default(),
-            label: None,
-        };
-
-        self.operations.push(operation);
+        self.push_op(Operation::Gelu {
+            input: input.id,
+            options: None,
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -2743,21 +2496,16 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = OperatorOptions::Squeeze(MLSqueezeOptions {
+        let squeeze_opts = MLSqueezeOptions {
             label: String::new(),
             axes: axes.unwrap_or_default(),
-        });
-
-        let operation = Operation {
-            op_type: "squeeze".to_string(),
-            input_operands: vec![input.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
         };
 
-        self.operations.push(operation);
+        self.push_op(Operation::Squeeze {
+            input: input.id,
+            options: Some(squeeze_opts),
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -2795,21 +2543,16 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = OperatorOptions::Unsqueeze(MLUnsqueezeOptions {
+        let unsqueeze_opts = MLUnsqueezeOptions {
             label: String::new(),
             axes,
-        });
-
-        let operation = Operation {
-            op_type: "unsqueeze".to_string(),
-            input_operands: vec![input.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
         };
 
-        self.operations.push(operation);
+        self.push_op(Operation::Unsqueeze {
+            input: input.id,
+            options: Some(unsqueeze_opts),
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -2872,23 +2615,18 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = OperatorOptions::ArgMinMax(MLArgMinMaxOptions {
+        let arg_opts = MLArgMinMaxOptions {
             label: String::new(),
-            axis,
             keep_dimensions,
             output_data_type: output_data_type.unwrap_or("int64").to_string(),
-        });
-
-        let operation = Operation {
-            op_type: "argMax".to_string(),
-            input_operands: vec![input.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
         };
 
-        self.operations.push(operation);
+        self.push_op(Operation::ArgMax {
+            input: input.id,
+            axis,
+            options: Some(arg_opts),
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -2951,23 +2689,18 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = OperatorOptions::ArgMinMax(MLArgMinMaxOptions {
+        let arg_opts = MLArgMinMaxOptions {
             label: String::new(),
-            axis,
             keep_dimensions,
             output_data_type: output_data_type.unwrap_or("int64").to_string(),
-        });
-
-        let operation = Operation {
-            op_type: "argMin".to_string(),
-            input_operands: vec![input.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
         };
 
-        self.operations.push(operation);
+        self.push_op(Operation::ArgMin {
+            input: input.id,
+            axis,
+            options: Some(arg_opts),
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -3021,21 +2754,12 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = OperatorOptions::Cast(MLCastOptions {
-            label: String::new(),
+        self.push_op(Operation::Cast {
+            input: input.id,
             to: data_type.to_string(),
+            options: None,
+            outputs: vec![output_id],
         });
-
-        let operation = Operation {
-            op_type: "cast".to_string(),
-            input_operands: vec![input.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
-        };
-
-        self.operations.push(operation);
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -3131,21 +2855,18 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = OperatorOptions::ScatterElements(MLScatterOptions {
+        let scatter_opts = MLScatterOptions {
             label: String::new(),
             axis,
-        });
-
-        let operation = Operation {
-            op_type: "scatterElements".to_string(),
-            input_operands: vec![input.id, indices.id, updates.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
         };
 
-        self.operations.push(operation);
+        self.push_op(Operation::ScatterElements {
+            input: input.id,
+            indices: indices.id,
+            updates: updates.id,
+            options: Some(scatter_opts),
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -3195,16 +2916,13 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let operation = Operation {
-            op_type: "scatterND".to_string(),
-            input_operands: vec![input.id, indices.id, updates.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes: OperatorOptions::default(),
-            label: None,
-        };
-
-        self.operations.push(operation);
+        self.push_op(Operation::ScatterND {
+            input: input.id,
+            indices: indices.id,
+            updates: updates.id,
+            options: None,
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -3244,21 +2962,12 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = OperatorOptions::Tile(MLTileOptions {
-            label: String::new(),
+        self.push_op(Operation::Tile {
+            input: input.id,
             repetitions,
+            options: None,
+            outputs: vec![output_id],
         });
-
-        let operation = Operation {
-            op_type: "tile".to_string(),
-            input_operands: vec![input.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
-        };
-
-        self.operations.push(operation);
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -3304,22 +3013,17 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = OperatorOptions::Triangular(MLTriangularOptions {
+        let tri_opts = MLTriangularOptions {
             label: String::new(),
             upper: Some(upper),
             diagonal,
-        });
-
-        let operation = Operation {
-            op_type: "triangular".to_string(),
-            input_operands: vec![input.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
         };
 
-        self.operations.push(operation);
+        self.push_op(Operation::Triangular {
+            input: input.id,
+            options: Some(tri_opts),
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -3366,22 +3070,17 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = OperatorOptions::HardSigmoid(MLHardSigmoidOptions {
+        let hs_opts = MLHardSigmoidOptions {
             label: String::new(),
             alpha: alpha as f64,
             beta: beta as f64,
-        });
-
-        let operation = Operation {
-            op_type: "hardSigmoid".to_string(),
-            input_operands: vec![input.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
         };
 
-        self.operations.push(operation);
+        self.push_op(Operation::HardSigmoid {
+            input: input.id,
+            options: Some(hs_opts),
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -3411,6 +3110,8 @@ impl PyMLGraphBuilder {
     fn hard_swish(&mut self, input: &PyMLOperand, alpha: f32, beta: f32) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_hardswish_shape;
 
+        let _ = (alpha, beta);
+
         let output_shape = infer_hardswish_shape(&input.descriptor.static_or_max_shape())
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
@@ -3423,22 +3124,11 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = OperatorOptions::HardSwish(MLHardSwishOptions {
-            label: String::new(),
-            alpha: alpha as f64,
-            beta: beta as f64,
+        self.push_op(Operation::HardSwish {
+            input: input.id,
+            options: None,
+            outputs: vec![output_id],
         });
-
-        let operation = Operation {
-            op_type: "hardSwish".to_string(),
-            input_operands: vec![input.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
-        };
-
-        self.operations.push(operation);
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -3478,16 +3168,11 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let operation = Operation {
-            op_type: "softplus".to_string(),
-            input_operands: vec![input.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes: OperatorOptions::default(),
-            label: None,
-        };
-
-        self.operations.push(operation);
+        self.push_op(Operation::Softplus {
+            input: input.id,
+            options: None,
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -3527,16 +3212,11 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let operation = Operation {
-            op_type: "softsign".to_string(),
-            input_operands: vec![input.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes: OperatorOptions::default(),
-            label: None,
-        };
-
-        self.operations.push(operation);
+        self.push_op(Operation::Softsign {
+            input: input.id,
+            options: None,
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -3595,22 +3275,17 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = OperatorOptions::Clamp(MLClampOptions {
+        let clamp_opts = MLClampOptions {
             label: String::new(),
             min_value: Some(serde_json::Value::from(f64::from(min_value))),
             max_value: Some(serde_json::Value::from(f64::from(max_value))),
-        });
-
-        let operation = Operation {
-            op_type: "clamp".to_string(),
-            input_operands: vec![input.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
         };
 
-        self.operations.push(operation);
+        self.push_op(Operation::Clamp {
+            input: input.id,
+            options: Some(clamp_opts),
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -3653,21 +3328,16 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = OperatorOptions::Elu(MLEluOptions {
+        let elu_opts = MLEluOptions {
             label: String::new(),
             alpha: alpha as f64,
-        });
-
-        let operation = Operation {
-            op_type: "elu".to_string(),
-            input_operands: vec![input.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
         };
 
-        self.operations.push(operation);
+        self.push_op(Operation::Elu {
+            input: input.id,
+            options: Some(elu_opts),
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -3710,21 +3380,16 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = OperatorOptions::LeakyRelu(MLLeakyReluOptions {
+        let leaky_opts = MLLeakyReluOptions {
             label: String::new(),
             alpha: alpha as f64,
-        });
-
-        let operation = Operation {
-            op_type: "leakyRelu".to_string(),
-            input_operands: vec![input.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
         };
 
-        self.operations.push(operation);
+        self.push_op(Operation::LeakyRelu {
+            input: input.id,
+            options: Some(leaky_opts),
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -3769,16 +3434,12 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let operation = Operation {
-            op_type: "prelu".to_string(),
-            input_operands: vec![input.id, slope.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes: OperatorOptions::default(),
-            label: None,
-        };
-
-        self.operations.push(operation);
+        self.push_op(Operation::Prelu {
+            input: input.id,
+            slope: slope.id,
+            options: None,
+            outputs: vec![output_id],
+        });
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -3795,6 +3456,11 @@ impl PyMLGraphBuilder {
 }
 
 impl PyMLGraphBuilder {
+    #[inline]
+    pub(crate) fn push_op(&mut self, op: Operation) {
+        self.operations.push(op);
+    }
+
     /// Create a new graph builder (Rust-accessible constructor)
     pub fn create() -> Self {
         Self {
@@ -3830,16 +3496,39 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let operation = Operation {
-            op_type: op_type.to_string(),
-            input_operands: vec![a.id, b.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes: OperatorOptions::default(),
-            label: None,
+        let op = match op_type {
+            "add" => Operation::Add {
+                a: a.id,
+                b: b.id,
+                options: None,
+                outputs: vec![output_id],
+            },
+            "sub" => Operation::Sub {
+                a: a.id,
+                b: b.id,
+                options: None,
+                outputs: vec![output_id],
+            },
+            "mul" => Operation::Mul {
+                a: a.id,
+                b: b.id,
+                options: None,
+                outputs: vec![output_id],
+            },
+            "div" => Operation::Div {
+                a: a.id,
+                b: b.id,
+                options: None,
+                outputs: vec![output_id],
+            },
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "internal error: unsupported binary op '{}'",
+                    op_type
+                )));
+            }
         };
-
-        self.operations.push(operation);
+        self.push_op(op);
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -3861,16 +3550,102 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let operation = Operation {
-            op_type: op_type.to_string(),
-            input_operands: vec![x.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes: OperatorOptions::default(),
-            label: None,
+        let input = x.id;
+        let outputs = vec![output_id];
+        let op = match op_type {
+            "abs" => Operation::Abs {
+                input,
+                options: None,
+                outputs,
+            },
+            "ceil" => Operation::Ceil {
+                input,
+                options: None,
+                outputs,
+            },
+            "cos" => Operation::Cos {
+                input,
+                options: None,
+                outputs,
+            },
+            "exp" => Operation::Exp {
+                input,
+                options: None,
+                outputs,
+            },
+            "floor" => Operation::Floor {
+                input,
+                options: None,
+                outputs,
+            },
+            "log" => Operation::Log {
+                input,
+                options: None,
+                outputs,
+            },
+            "neg" => Operation::Neg {
+                input,
+                options: None,
+                outputs,
+            },
+            "relu" => Operation::Relu {
+                input,
+                options: None,
+                outputs,
+            },
+            "sigmoid" => Operation::Sigmoid {
+                input,
+                options: None,
+                outputs,
+            },
+            "sin" => Operation::Sin {
+                input,
+                options: None,
+                outputs,
+            },
+            "sqrt" => Operation::Sqrt {
+                input,
+                options: None,
+                outputs,
+            },
+            "tan" => Operation::Tan {
+                input,
+                options: None,
+                outputs,
+            },
+            "tanh" => Operation::Tanh {
+                input,
+                options: None,
+                outputs,
+            },
+            "erf" => Operation::Erf {
+                input,
+                options: None,
+                outputs,
+            },
+            "identity" => Operation::Identity {
+                input,
+                options: None,
+                outputs,
+            },
+            "reciprocal" => Operation::Reciprocal {
+                input,
+                options: None,
+                outputs,
+            },
+            "sign" => Operation::Sign {
+                input,
+                options: None,
+                outputs,
+            },
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "Unary op '{}' has no Operation variant in this rustnn build",
+                    op_type
+                )));
+            }
         };
-
-        self.operations.push(operation);
+        self.push_op(op);
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
@@ -3914,22 +3689,71 @@ impl PyMLGraphBuilder {
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
 
-        let attributes = OperatorOptions::Reduce(MLReduceOptions {
+        let reduce_opts = MLReduceOptions {
             label: String::new(),
             axes,
             keep_dimensions,
-        });
-
-        let operation = Operation {
-            op_type: op_type.to_string(),
-            input_operands: vec![input.id],
-            output_operand: Some(output_id),
-            output_operands: Vec::new(),
-            attributes,
-            label: None,
         };
 
-        self.operations.push(operation);
+        let op = match op_type {
+            "reduceSum" => Operation::ReduceSum {
+                input: input.id,
+                options: Some(reduce_opts),
+                outputs: vec![output_id],
+            },
+            "reduceMean" => Operation::ReduceMean {
+                input: input.id,
+                options: Some(reduce_opts),
+                outputs: vec![output_id],
+            },
+            "reduceMax" => Operation::ReduceMax {
+                input: input.id,
+                options: Some(reduce_opts),
+                outputs: vec![output_id],
+            },
+            "reduceMin" => Operation::ReduceMin {
+                input: input.id,
+                options: Some(reduce_opts),
+                outputs: vec![output_id],
+            },
+            "reduceProduct" => Operation::ReduceProduct {
+                input: input.id,
+                options: Some(reduce_opts),
+                outputs: vec![output_id],
+            },
+            "reduceL1" => Operation::ReduceL1 {
+                input: input.id,
+                options: Some(reduce_opts),
+                outputs: vec![output_id],
+            },
+            "reduceL2" => Operation::ReduceL2 {
+                input: input.id,
+                options: Some(reduce_opts),
+                outputs: vec![output_id],
+            },
+            "reduceLogSum" => Operation::ReduceLogSum {
+                input: input.id,
+                options: Some(reduce_opts),
+                outputs: vec![output_id],
+            },
+            "reduceLogSumExp" => Operation::ReduceLogSumExp {
+                input: input.id,
+                options: Some(reduce_opts),
+                outputs: vec![output_id],
+            },
+            "reduceSumSquare" => Operation::ReduceSumSquare {
+                input: input.id,
+                options: Some(reduce_opts),
+                outputs: vec![output_id],
+            },
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "internal error: unsupported reduce op '{}'",
+                    op_type
+                )));
+            }
+        };
+        self.push_op(op);
 
         let output_operand = Operand {
             descriptor: output_descriptor.clone(),
