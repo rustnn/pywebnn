@@ -360,18 +360,27 @@ class MLGraph:
         ...
 
     @staticmethod
-    def load(path: str) -> "MLGraph":
+    def load(
+        path: str,
+        manifest_path: Optional[str] = None,
+        weights_path: Optional[str] = None,
+    ) -> "MLGraph":
         """
-        Load a graph from a .webnn JSON file
+        Load a graph from a .webnn file (JSON or text format)
 
         Args:
             path: File path to load the graph from (e.g., "model.webnn")
+            manifest_path: Optional path to manifest.json for external weights
+            weights_path: Optional path to external weights binary, or a single
+                .safetensors file when manifest_path is not provided
 
         Returns:
             The loaded MLGraph
 
         Example:
             >>> graph = MLGraph.load("my_model.webnn")
+            >>> graph = MLGraph.load("model.webnn", manifest_path="manifest.json", weights_path="model.weights")
+            >>> graph = MLGraph.load("model.webnn", weights_path="model.safetensors")
         """
         ...
 
