@@ -683,7 +683,7 @@ impl PyMLGraphBuilder {
         input: &PyMLOperand,
         layout: Option<&str>,
     ) -> PyResult<PyMLOperand> {
-        use rustnn::shape_inference::{infer_global_pool_shape, GlobalPoolOptions, InputLayout};
+        use rustnn::shape_inference::{infer_global_pool_shape, InputLayout};
 
         let layout_enum = match layout.unwrap_or("nchw") {
             "nchw" => InputLayout::Nchw,
@@ -696,14 +696,11 @@ impl PyMLGraphBuilder {
             }
         };
 
-        let shape_opts = GlobalPoolOptions {
-            layout: layout_enum,
-        };
-
-        // Infer output shape
-        let output_shape =
-            infer_global_pool_shape(&input.descriptor.static_or_max_shape(), &shape_opts)
-                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shape = infer_global_pool_shape(
+            &input.descriptor.static_or_max_shape(),
+            layout_enum,
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
@@ -758,7 +755,7 @@ impl PyMLGraphBuilder {
         input: &PyMLOperand,
         layout: Option<&str>,
     ) -> PyResult<PyMLOperand> {
-        use rustnn::shape_inference::{infer_global_pool_shape, GlobalPoolOptions, InputLayout};
+        use rustnn::shape_inference::{infer_global_pool_shape, InputLayout};
 
         let layout_enum = match layout.unwrap_or("nchw") {
             "nchw" => InputLayout::Nchw,
@@ -771,14 +768,11 @@ impl PyMLGraphBuilder {
             }
         };
 
-        let shape_opts = GlobalPoolOptions {
-            layout: layout_enum,
-        };
-
-        // Infer output shape
-        let output_shape =
-            infer_global_pool_shape(&input.descriptor.static_or_max_shape(), &shape_opts)
-                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shape = infer_global_pool_shape(
+            &input.descriptor.static_or_max_shape(),
+            layout_enum,
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
