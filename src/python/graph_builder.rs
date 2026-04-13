@@ -696,11 +696,9 @@ impl PyMLGraphBuilder {
             }
         };
 
-        let output_shape = infer_global_pool_shape(
-            &input.descriptor.static_or_max_shape(),
-            layout_enum,
-        )
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shape =
+            infer_global_pool_shape(&input.descriptor.static_or_max_shape(), layout_enum)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
@@ -768,11 +766,9 @@ impl PyMLGraphBuilder {
             }
         };
 
-        let output_shape = infer_global_pool_shape(
-            &input.descriptor.static_or_max_shape(),
-            layout_enum,
-        )
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let output_shape =
+            infer_global_pool_shape(&input.descriptor.static_or_max_shape(), layout_enum)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,
