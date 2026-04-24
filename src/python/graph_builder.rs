@@ -13,6 +13,7 @@ use pyo3::types::PyDict;
 use rustnn::graph::{
     to_dimension_vector, ConstantData, DataType, GraphInfo, Operand, OperandDescriptor, OperandKind,
 };
+use rustnn::operator_enums::MLOperandDataType;
 use rustnn::operator_options::{
     MLArgMinMaxOptions, MLBatchNormalizationOptions, MLClampOptions, MLConv2dOptions,
     MLConvTranspose2dOptions, MLDimension, MLEluOptions, MLGatherOptions, MLGemmOptions,
@@ -2528,9 +2529,9 @@ impl PyMLGraphBuilder {
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         // Parse output data type, default to int64
-        let output_type = match output_data_type {
-            Some("int32") => DataType::Int32,
-            Some("int64") | None => DataType::Int64,
+        let (output_type, ml_output_dtype) = match output_data_type {
+            Some("int32") => (DataType::Int32, MLOperandDataType::Int32),
+            Some("int64") | None => (DataType::Int64, MLOperandDataType::Int64),
             Some(other) => {
                 return Err(pyo3::exceptions::PyValueError::new_err(format!(
                     "Invalid output_data_type '{}', must be 'int32' or 'int64'",
@@ -2551,7 +2552,7 @@ impl PyMLGraphBuilder {
         let arg_opts = MLArgMinMaxOptions {
             label: String::new(),
             keep_dimensions,
-            output_data_type: output_data_type.unwrap_or("int64").to_string(),
+            output_data_type: ml_output_dtype,
         };
 
         self.push_op(Operation::ArgMax {
@@ -2602,9 +2603,9 @@ impl PyMLGraphBuilder {
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         // Parse output data type, default to int64
-        let output_type = match output_data_type {
-            Some("int32") => DataType::Int32,
-            Some("int64") | None => DataType::Int64,
+        let (output_type, ml_output_dtype) = match output_data_type {
+            Some("int32") => (DataType::Int32, MLOperandDataType::Int32),
+            Some("int64") | None => (DataType::Int64, MLOperandDataType::Int64),
             Some(other) => {
                 return Err(pyo3::exceptions::PyValueError::new_err(format!(
                     "Invalid output_data_type '{}', must be 'int32' or 'int64'",
@@ -2625,7 +2626,7 @@ impl PyMLGraphBuilder {
         let arg_opts = MLArgMinMaxOptions {
             label: String::new(),
             keep_dimensions,
-            output_data_type: output_data_type.unwrap_or("int64").to_string(),
+            output_data_type: ml_output_dtype,
         };
 
         self.push_op(Operation::ArgMin {
@@ -2662,14 +2663,14 @@ impl PyMLGraphBuilder {
         let output_shape = infer_cast_shape(&input.descriptor.static_or_max_shape());
 
         // Parse target data type
-        let target_type = match data_type {
-            "float32" => DataType::Float32,
-            "float16" => DataType::Float16,
-            "int32" => DataType::Int32,
-            "uint32" => DataType::Uint32,
-            "int8" => DataType::Int8,
-            "uint8" => DataType::Uint8,
-            "int64" => DataType::Int64,
+        let (target_type, ml_dtype) = match data_type {
+            "float32" => (DataType::Float32, MLOperandDataType::Float32),
+            "float16" => (DataType::Float16, MLOperandDataType::Float16),
+            "int32" => (DataType::Int32, MLOperandDataType::Int32),
+            "uint32" => (DataType::Uint32, MLOperandDataType::Uint32),
+            "int8" => (DataType::Int8, MLOperandDataType::Int8),
+            "uint8" => (DataType::Uint8, MLOperandDataType::Uint8),
+            "int64" => (DataType::Int64, MLOperandDataType::Int64),
             other => {
                 return Err(pyo3::exceptions::PyValueError::new_err(format!(
                     "Invalid data_type '{}', must be one of: float32, float16, int32, uint32, int8, uint8, int64",
@@ -2689,7 +2690,7 @@ impl PyMLGraphBuilder {
 
         self.push_op(Operation::Cast {
             input: input.id,
-            to: data_type.to_string(),
+            data_type: ml_dtype,
             options: None,
             outputs: vec![output_id],
         });

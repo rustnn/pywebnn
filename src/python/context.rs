@@ -18,6 +18,8 @@ use rustnn::Operation;
 
 #[cfg(feature = "onnx-runtime")]
 use rustnn::executors::onnx::{run_onnx_with_inputs, OnnxInput};
+#[cfg(feature = "onnx-runtime")]
+use std::borrow::Cow;
 
 #[cfg(all(target_os = "macos", feature = "coreml-runtime"))]
 use rustnn::executors::coreml::run_coreml_zeroed_cached_with_weights;
@@ -340,6 +342,19 @@ impl PyMLContext {
         std::fs::write(output_path, &converted.data).map_err(|e| {
             pyo3::exceptions::PyIOError::new_err(format!("Failed to write ONNX file: {}", e))
         })?;
+        if let Some(weights) = &converted.weights_data {
+            let sidecar = std::path::Path::new(output_path)
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new("."))
+                .join(rustnn::ONNX_EXTERNAL_WEIGHTS_FILENAME);
+            std::fs::write(&sidecar, weights).map_err(|e| {
+                pyo3::exceptions::PyIOError::new_err(format!(
+                    "Failed to write ONNX external weights file `{}`: {}",
+                    sidecar.display(),
+                    e
+                ))
+            })?;
+        }
 
         Ok(())
     }
@@ -1107,18 +1122,33 @@ impl PyMLContext {
             pyo3::exceptions::PyRuntimeError::new_err(format!("ONNX conversion failed: {}", e))
         })?;
 
-        let session = ort::session::Session::builder()
+        let rustnn::converters::ConvertedGraph {
+            data, weights_data, ..
+        } = converted;
+        let mut builder = ort::session::Session::builder()
             .map_err(|e| {
                 pyo3::exceptions::PyRuntimeError::new_err(format!("Session builder failed: {}", e))
             })?
             .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level1)
             .map_err(|e| {
                 pyo3::exceptions::PyRuntimeError::new_err(format!("Set opt level failed: {}", e))
-            })?
-            .commit_from_memory(&converted.data)
-            .map_err(|e| {
-                pyo3::exceptions::PyRuntimeError::new_err(format!("Load model failed: {}", e))
             })?;
+        if let Some(weights) = weights_data {
+            builder = builder
+                .with_external_initializer_file_in_memory(
+                    rustnn::ONNX_EXTERNAL_WEIGHTS_FILENAME,
+                    Cow::Owned(weights),
+                )
+                .map_err(|e| {
+                    pyo3::exceptions::PyRuntimeError::new_err(format!(
+                        "Set external initializer failed: {}",
+                        e
+                    ))
+                })?;
+        }
+        let session = builder.commit_from_memory(&data).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("Load model failed: {}", e))
+        })?;
 
         let session_arc = std::sync::Arc::new(session);
         *session_guard = Some(std::sync::Arc::clone(&session_arc));
@@ -1265,7 +1295,12 @@ impl PyMLContext {
         }
 
         // Execute with ONNX runtime
-        let onnx_outputs = run_onnx_with_inputs(&converted.data, onnx_inputs).map_err(|e| {
+        let onnx_outputs = run_onnx_with_inputs(
+            &converted.data,
+            converted.weights_data.as_deref(),
+            onnx_inputs,
+        )
+        .map_err(|e| {
             pyo3::exceptions::PyRuntimeError::new_err(format!("ONNX execution failed: {}", e))
         })?;
 
