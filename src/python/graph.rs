@@ -9,7 +9,6 @@ use pyo3::exceptions::PyIOError;
 use pyo3::prelude::*;
 use rustnn::graph::GraphInfo;
 use rustnn::webnn_json;
-use safetensors::SafeTensors;
 use std::fs;
 use std::path::Path;
 
@@ -358,9 +357,10 @@ impl PyMLGraph {
     ///
     /// Args:
     ///     path: File path to load the graph from (e.g., "model.webnn")
-    ///     manifest_path: Optional path to manifest.json file for external weights
-    ///     weights_path: Optional path to weights file for external weights, or
-    ///         a single .safetensors file (when manifest_path is not provided)
+    ///     manifest_path: Optional path to manifest.json for manifest + raw weights layout
+    ///     weights_path: Path to a `.safetensors` file, or to a raw `.weights` blob (with manifest
+    ///         passed explicitly or discovered next to the graph). Relative paths are resolved from
+    ///         the graph file’s parent directory (same rules as `webnn-graph`).
     ///
     /// Returns:
     ///     MLGraph: The loaded graph
@@ -373,6 +373,7 @@ impl PyMLGraph {
     ///     graph = MLGraph.load("my_model.webnn")
     ///     graph = MLGraph.load("model.webnn", manifest_path="manifest.json", weights_path="model.weights")
     ///     graph = MLGraph.load("model.webnn", weights_path="model.safetensors")
+    ///     graph = MLGraph.load("model.webnn", weights_path="custom_name.safetensors")
     #[staticmethod]
     #[pyo3(signature = (path, manifest_path=None, weights_path=None))]
     fn load(path: &str, manifest_path: Option<&str>, weights_path: Option<&str>) -> PyResult<Self> {
@@ -400,7 +401,7 @@ impl PyMLGraph {
         };
 
         // Resolve external weight references if present
-        Self::resolve_external_weights(&mut graph_json, manifest_path, weights_path)?;
+        Self::resolve_external_weights(&mut graph_json, path_obj, manifest_path, weights_path)?;
 
         // Convert GraphJson to GraphInfo
         let graph_info = webnn_json::from_graph_json(&graph_json)
@@ -415,154 +416,42 @@ impl PyMLGraph {
         Self { graph_info }
     }
 
-    /// Resolve external weight references in a GraphJson
-    ///
-    /// This function loads manifest and weights files and resolves all weight references to inline bytes.
-    ///
-    /// If weights_path are not provided, returns immediately (no external weights).
+    /// Delegates to [`webnn_graph::resolve_external_weights`], then surfaces a Python error if any
+    /// `@weights` refs remain (e.g. partial safetensors coverage).
     fn resolve_external_weights(
         graph_json: &mut webnn_graph::ast::GraphJson,
-        manifest_path: Option<&str>,
-        weights_path: Option<&str>,
-    ) -> PyResult<()> {
-        if let Some(st_path) = Self::resolve_safetensors_path(weights_path) {
-            return Self::resolve_safetensors_weights(graph_json, st_path);
-        }
-
-        Self::resolve_manifest_weights(graph_json, manifest_path, weights_path)
-    }
-
-    fn resolve_safetensors_path(weights_path: Option<&str>) -> Option<&str> {
-        fn is_safetensors(path: &str) -> bool {
-            path.ends_with(".safetensors") || path.ends_with(".safetensor")
-        }
-
-        if let Some(p) = weights_path {
-            if is_safetensors(p) {
-                return Some(p);
-            }
-        }
-        None
-    }
-
-    fn resolve_safetensors_weights(
-        graph_json: &mut webnn_graph::ast::GraphJson,
-        safetensors_path: &str,
-    ) -> PyResult<()> {
-        use std::collections::HashMap;
-        use webnn_graph::ast::ConstInit;
-
-        let st_bytes = fs::read(safetensors_path)
-            .map_err(|e| PyIOError::new_err(format!("Failed to read safetensors: {}", e)))?;
-        let st = SafeTensors::deserialize(&st_bytes)
-            .map_err(|e| PyIOError::new_err(format!("Failed to parse safetensors: {}", e)))?;
-
-        // Map sanitized key -> original key to support refs where "." and "::"
-        // were replaced by "_" and "__".
-        let mut sanitized_map: HashMap<String, String> = HashMap::new();
-        for key in st.names() {
-            sanitized_map.insert(key.replace("::", "__").replace('.', "_"), key.to_string());
-        }
-
-        for (_name, const_decl) in graph_json.consts.iter_mut() {
-            if let ConstInit::Weights { r#ref } = &const_decl.init {
-                let tensor_view = st
-                    .tensor(r#ref)
-                    .or_else(|_| {
-                        sanitized_map
-                            .get(r#ref)
-                            .ok_or_else(|| {
-                                safetensors::SafeTensorError::TensorNotFound(r#ref.clone())
-                            })
-                            .and_then(|orig| st.tensor(orig))
-                    })
-                    .map_err(|e| {
-                        PyIOError::new_err(format!(
-                            "Weight '{}' not found in safetensors '{}': {}",
-                            r#ref, safetensors_path, e
-                        ))
-                    })?;
-
-                const_decl.init = ConstInit::InlineBytes {
-                    bytes: tensor_view.data().to_vec(),
-                };
-            }
-        }
-
-        Ok(())
-    }
-
-    fn resolve_manifest_weights(
-        graph_json: &mut webnn_graph::ast::GraphJson,
+        graph_path: &Path,
         manifest_path: Option<&str>,
         weights_path: Option<&str>,
     ) -> PyResult<()> {
         use webnn_graph::ast::ConstInit;
-        use webnn_graph::weights::WeightsManifest;
 
-        // If no manifest path provided, assume no external weights
-        let manifest_path = match manifest_path {
-            Some(p) => p,
-            None => return Ok(()),
-        };
+        webnn_graph::resolve_external_weights(
+            graph_json,
+            graph_path,
+            weights_path,
+            manifest_path,
+        )
+        .map_err(|e| {
+            PyIOError::new_err(format!(
+                "Failed to resolve external weights: {e}. \
+                 Pass weights_path to a `.safetensors` file, or manifest_path and weights_path for manifest + raw blob, \
+                 or place sidecar files next to the graph."
+            ))
+        })?;
 
-        // If no weights path provided, assume no external weights
-        let weights_path = match weights_path {
-            Some(p) => p,
-            None => return Ok(()),
-        };
-
-        // Load manifest
-        let manifest_content = fs::read_to_string(manifest_path)
-            .map_err(|e| PyIOError::new_err(format!("Failed to read manifest: {}", e)))?;
-        let manifest: WeightsManifest = serde_json::from_str(&manifest_content)
-            .map_err(|e| PyIOError::new_err(format!("Failed to parse manifest: {}", e)))?;
-
-        // Load weights file
-        let weights_data = fs::read(weights_path)
-            .map_err(|e| PyIOError::new_err(format!("Failed to read weights: {}", e)))?;
-
-        // Create a sanitized lookup map: dots and colons in manifest keys -> underscores.
-        // Some graphs carry sanitized weight refs while others keep original dotted refs.
-        // We support both formats by checking exact refs first, then sanitized refs.
-        use std::collections::HashMap;
-        let sanitized_manifest: HashMap<String, _> = manifest
-            .tensors
-            .iter()
-            .map(|(key, value)| (key.replace("::", "__").replace('.', "_"), value))
-            .collect();
-
-        // Resolve weight references in constants
-        for (_name, const_decl) in graph_json.consts.iter_mut() {
-            if let ConstInit::Weights { r#ref } = &const_decl.init {
-                // Prefer exact key lookup for modern manifests, then fallback to sanitized.
-                let tensor_entry = manifest
-                    .tensors
-                    .get(r#ref)
-                    .or_else(|| sanitized_manifest.get(r#ref).copied());
-
-                if let Some(tensor_entry) = tensor_entry {
-                    let offset = tensor_entry.byte_offset as usize;
-                    let length = tensor_entry.byte_length as usize;
-
-                    // Extract bytes from weights file
-                    if offset + length > weights_data.len() {
-                        return Err(PyIOError::new_err(format!(
-                            "Weight '{}' offset/length exceeds weights file size",
-                            r#ref
-                        )));
-                    }
-                    let bytes = weights_data[offset..offset + length].to_vec();
-
-                    // Replace weight reference with inline bytes
-                    const_decl.init = ConstInit::InlineBytes { bytes };
-                } else {
-                    return Err(PyIOError::new_err(format!(
-                        "Weight '{}' not found in manifest",
-                        r#ref
-                    )));
-                }
-            }
+        let pending_count = graph_json
+            .consts
+            .values()
+            .filter(|c| matches!(c.init, ConstInit::Weights { .. }))
+            .count();
+        if pending_count > 0 {
+            return Err(PyIOError::new_err(format!(
+                "Graph still has {pending_count} external weight reference(s) after resolution. \
+                 Pass weights_path to your `.safetensors` file, or manifest_path + weights_path for manifest + raw blob, \
+                 or place model.safetensors / {{stem}}.safetensors or manifest + weights next to the graph. \
+                 Rebuild the native extension (`pip install -e .` / maturin) if dependency changes are not picked up.",
+            )));
         }
 
         Ok(())

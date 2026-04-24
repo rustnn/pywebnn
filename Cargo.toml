@@ -22,10 +22,11 @@ dynamic-inputs = ["rustnn/dynamic-inputs"]
 
 [dependencies]
 pyo3 = { version = "0.28", features = ["extension-module"] }
-rustnn = { git = "https://github.com/rustnn/rustnn", branch = "main" }
+rustnn = { git = "https://github.com/rustnn/rustnn", branch = "flux2_prepare" }
+#rustnn = { path = "../rustnn" }
 serde_json = "1.0"
 webnn-graph = { git = "https://github.com/rustnn/webnn-graph", branch = "main" }
-safetensors = "0.7"
+#webnn-graph = { path = "../webnn-graph" }
 half = "2.4"
 regex = "1.11"
 # Optional runtime dependencies
