@@ -4,8 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [0.5.12] - 2026-05-04
 
-- Switch `rustnn` dependency to crates.io `"0.5.12"` (was a git tag).
-- Pin `webnn-graph` dependency to crates.io `"0.3"` (was a git branch).
+- Pin `rustnn` to `"0.5.12"`.
+- Pin `webnn-graph` to `"0.3"`.
 - Update to new ONNX split protobuf + weight API and `MLOperandDataType` enum (#14).
 - Remove the use of `shape_inference` `OperatorOptions` (#13).
 
