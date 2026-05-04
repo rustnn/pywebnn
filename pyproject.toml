@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "pywebnn"
-version = "0.5.11"
+version = "0.5.12"
 description = "Python bindings for W3C WebNN specification"
 readme = "README.md"
 requires-python = ">=3.10"
