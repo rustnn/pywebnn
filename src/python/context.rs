@@ -6,8 +6,9 @@
 #![allow(clippy::useless_conversion)]
 
 use super::context_state::{
-    build_context_options, compute_with_dispatch, create_rustnn_tensor, read_rustnn_tensor,
-    write_rustnn_tensor, ContextState,
+    build_context_options, compute_with_dispatch, create_rustnn_tensor, dispatch_with_ml_tensors,
+    read_rustnn_tensor, resize_rustnn_tensor, set_rustnn_tensor_capacity, write_rustnn_tensor,
+    ContextState,
 };
 use super::graph::PyMLGraph;
 use super::graph_builder::PyMLGraphBuilder;
@@ -139,27 +140,37 @@ impl PyMLContext {
             }
         }
 
-        let numpy_inputs = PyDict::new(py);
-        for (key, value) in inputs.iter() {
-            let tensor = value.cast::<PyMLTensor>()?;
-            let numpy_array = Self::read_tensor(this.clone_ref(py), py, &tensor.borrow())?;
-            numpy_inputs.set_item(key, numpy_array)?;
-        }
+        let ctx = this.bind(py).borrow();
+        let mut state = ctx.state.lock().unwrap();
+        dispatch_with_ml_tensors(py, &mut state, graph, &this, inputs, outputs)
+    }
 
-        let results = {
-            let ctx = this.bind(py).borrow();
-            let mut state = ctx.state.lock().unwrap();
-            compute_with_dispatch(py, &mut state, graph, &this, &numpy_inputs)?
-        };
+    /// Resize a tensor's logical shape for dynamic-input graphs (KV cache, masks).
+    ///
+    /// Storage may be pre-allocated with `set_tensor_capacity`. See `rustnn/examples/smollm_mlcontext.rs`.
+    fn resize_tensor(
+        this: Py<Self>,
+        _py: Python,
+        tensor: &mut PyMLTensor,
+        shape: Vec<u32>,
+    ) -> PyResult<()> {
+        tensor.check_destroyed()?;
+        let ctx = this.bind(_py).borrow();
+        let mut state = ctx.state.lock().unwrap();
+        resize_rustnn_tensor(&mut state, &mut tensor.inner, &shape)
+    }
 
-        for (key, value) in outputs.iter() {
-            let tensor = value.cast::<PyMLTensor>()?;
-            if let Some(result) = results.bind(py).get_item(&key)? {
-                Self::write_tensor(this.clone_ref(py), py, &tensor.borrow(), result.into())?;
-            }
-        }
-
-        Ok(())
+    /// Pre-allocate tensor storage up to `max_shape` without changing the logical shape.
+    fn set_tensor_capacity(
+        this: Py<Self>,
+        _py: Python,
+        tensor: &mut PyMLTensor,
+        max_shape: Vec<u32>,
+    ) -> PyResult<()> {
+        tensor.check_destroyed()?;
+        let ctx = this.bind(_py).borrow();
+        let mut state = ctx.state.lock().unwrap();
+        set_rustnn_tensor_capacity(&mut state, &mut tensor.inner, &max_shape)
     }
 
     /// Convert graph to ONNX format

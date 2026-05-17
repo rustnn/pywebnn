@@ -117,6 +117,14 @@ class MLContext:
         """
         ...
 
+    def resize_tensor(self, tensor: "MLTensor", shape: List[int]) -> None:
+        """Resize logical tensor shape for dynamic-input inference."""
+        ...
+
+    def set_tensor_capacity(self, tensor: "MLTensor", max_shape: List[int]) -> None:
+        """Pre-allocate tensor storage up to max_shape (logical shape unchanged)."""
+        ...
+
     def create_tensor(
         self,
         shape: List[int],
