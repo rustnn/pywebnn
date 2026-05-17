@@ -30,6 +30,8 @@ use std::collections::HashMap;
 /// Builder for constructing WebNN computational graphs
 #[pyclass(name = "MLGraphBuilder")]
 pub struct PyMLGraphBuilder {
+    context: Py<super::context::PyMLContext>,
+    built: bool,
     operands: Vec<Operand>,
     operations: Vec<Operation>,
     input_operands: Vec<u32>,
@@ -41,15 +43,10 @@ pub struct PyMLGraphBuilder {
 #[pymethods]
 impl PyMLGraphBuilder {
     #[new]
-    fn new() -> Self {
-        Self {
-            operands: Vec::new(),
-            operations: Vec::new(),
-            input_operands: Vec::new(),
-            next_operand_id: 0,
-            operand_map: HashMap::new(),
-            constant_data_map: HashMap::new(),
-        }
+    fn new() -> PyResult<Self> {
+        Err(pyo3::exceptions::PyRuntimeError::new_err(
+            "MLGraphBuilder must be created via MLContext.create_graph_builder()",
+        ))
     }
 
     /// Create an input operand
@@ -2715,7 +2712,7 @@ impl PyMLGraphBuilder {
     ///
     /// Returns:
     ///     MLGraph: The compiled graph
-    fn build(&mut self, outputs: &Bound<'_, PyDict>) -> PyResult<PyMLGraph> {
+    fn build(&mut self, py: Python<'_>, outputs: &Bound<'_, PyDict>) -> PyResult<PyMLGraph> {
         let mut output_operands = Vec::new();
 
         // Mark outputs and collect output IDs
@@ -2748,7 +2745,25 @@ impl PyMLGraphBuilder {
             pyo3::exceptions::PyValueError::new_err(format!("Graph validation failed: {}", e))
         })?;
 
-        Ok(PyMLGraph::new(graph_info))
+        if self.built {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "MLGraphBuilder.build() was already called",
+            ));
+        }
+        self.built = true;
+
+        let graph_slot = {
+            self.context
+                .bind(py)
+                .borrow()
+                .compile_graph(graph_info.clone())?
+        };
+
+        Ok(PyMLGraph::new_compiled(
+            graph_info,
+            self.context.clone_ref(py),
+            graph_slot,
+        ))
     }
 
     /// Scatter elements operation
@@ -3395,9 +3410,11 @@ impl PyMLGraphBuilder {
         self.operations.push(op);
     }
 
-    /// Create a new graph builder (Rust-accessible constructor)
-    pub fn create() -> Self {
+    /// Create a new graph builder tied to a context (internal).
+    pub(crate) fn new_for_context(context: Py<super::context::PyMLContext>) -> Self {
         Self {
+            context,
+            built: false,
             operands: Vec::new(),
             operations: Vec::new(),
             input_operands: Vec::new(),

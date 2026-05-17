@@ -1,73 +1,37 @@
 //! MLTensor implementation following WebNN MLTensor Explainer
-//!
-//! PyO3 macros generate unsafe code that triggers unsafe_op_in_unsafe_fn warnings.
-//! This is expected behavior from the macro-generated code.
+
 #![allow(unsafe_op_in_unsafe_fn)]
 #![allow(clippy::useless_conversion)]
 
 use pyo3::prelude::*;
-use rustnn::graph::{get_static_or_max_size, DataType, OperandDescriptor};
+use rustnn::mlcontext::MLTensorDescriptor;
 use std::sync::{Arc, Mutex};
 
-/// MLTensorDescriptor - Describes tensor properties and usage flags
-///
-/// Following the W3C WebNN MLTensor Explainer:
-/// https://github.com/webmachinelearning/webnn/blob/main/mltensor-explainer.md
-#[derive(Clone, Debug)]
-pub struct MLTensorDescriptor {
-    pub descriptor: OperandDescriptor,
-    /// If true, tensor data can be read back to CPU
-    pub readable: bool,
-    /// If true, tensor data can be written from CPU
-    pub writable: bool,
-    /// If true, tensor can be exported for use as GPU texture (future use)
-    pub exportable_to_gpu: bool,
+use super::context::PyMLContext;
+/// Host-side view of a rustnn `MLTensor` owned by a context.
+pub(crate) struct RustnnTensor {
+    pub tensor: rustnn::mlcontext::MLTensor,
+    pub desc: MLTensorDescriptor,
 }
 
-/// MLTensor - Represents an opaque typed tensor with data storage
-///
-/// MLTensor is used for explicit tensor management in WebNN, allowing
-/// pre-allocation of input/output buffers and explicit data transfer.
-///
-/// Following the W3C WebNN MLTensor Explainer:
-/// https://github.com/webmachinelearning/webnn/blob/main/mltensor-explainer.md
-#[pyclass(name = "MLTensor", from_py_object)]
-#[derive(Clone)]
+/// MLTensor - opaque typed tensor backed by rustnn runtime storage.
+#[pyclass(name = "MLTensor")]
 pub struct PyMLTensor {
-    pub(crate) tensor_descriptor: MLTensorDescriptor,
-    pub(crate) data: Arc<Mutex<Vec<f32>>>,
+    pub(crate) context: Py<PyMLContext>,
+    pub(crate) inner: RustnnTensor,
     destroyed: Arc<Mutex<bool>>,
 }
 
 impl PyMLTensor {
-    /// Create a new tensor with the given tensor descriptor
-    pub fn new(tensor_descriptor: MLTensorDescriptor) -> Self {
-        let total_elements: usize = tensor_descriptor
-            .descriptor
-            .shape
-            .iter()
-            .map(|d| get_static_or_max_size(d) as usize)
-            .product();
-        let data = vec![0.0f32; total_elements];
-
+    pub(crate) fn from_rustnn(context: Py<PyMLContext>, inner: RustnnTensor) -> Self {
         Self {
-            tensor_descriptor,
-            data: Arc::new(Mutex::new(data)),
+            context,
+            inner,
             destroyed: Arc::new(Mutex::new(false)),
         }
     }
 
-    /// Create a tensor from existing data
-    pub fn from_data(tensor_descriptor: MLTensorDescriptor, data: Vec<f32>) -> Self {
-        Self {
-            tensor_descriptor,
-            data: Arc::new(Mutex::new(data)),
-            destroyed: Arc::new(Mutex::new(false)),
-        }
-    }
-
-    /// Check if tensor has been destroyed
-    fn check_destroyed(&self) -> PyResult<()> {
+    pub(crate) fn check_destroyed(&self) -> PyResult<()> {
         if *self.destroyed.lock().unwrap() {
             return Err(pyo3::exceptions::PyRuntimeError::new_err(
                 "Tensor has been destroyed",
@@ -75,103 +39,58 @@ impl PyMLTensor {
         }
         Ok(())
     }
-
-    /// Get the data as a vector
-    pub fn get_data(&self) -> PyResult<Vec<f32>> {
-        self.check_destroyed()?;
-        if !self.tensor_descriptor.readable {
-            return Err(pyo3::exceptions::PyRuntimeError::new_err(
-                "Tensor is not readable (readable=false)",
-            ));
-        }
-        Ok(self.data.lock().unwrap().clone())
-    }
-
-    /// Set the data from a vector
-    pub fn set_data(&self, data: Vec<f32>) -> PyResult<()> {
-        self.check_destroyed()?;
-        if !self.tensor_descriptor.writable {
-            return Err(pyo3::exceptions::PyRuntimeError::new_err(
-                "Tensor is not writable (writable=false)",
-            ));
-        }
-        let expected_size: usize = self
-            .tensor_descriptor
-            .descriptor
-            .shape
-            .iter()
-            .map(|d| get_static_or_max_size(d) as usize)
-            .product();
-        if data.len() != expected_size {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "Data size mismatch: expected {} elements, got {}",
-                expected_size,
-                data.len()
-            )));
-        }
-        *self.data.lock().unwrap() = data;
-        Ok(())
-    }
 }
 
 #[pymethods]
 impl PyMLTensor {
-    /// Get the data type of the tensor
     #[getter]
     fn data_type(&self) -> String {
-        match self.tensor_descriptor.descriptor.data_type {
-            DataType::Int4 => "int4".to_string(),
-            DataType::Uint4 => "uint4".to_string(),
-            DataType::Float32 => "float32".to_string(),
-            DataType::Float16 => "float16".to_string(),
-            DataType::Int32 => "int32".to_string(),
-            DataType::Uint32 => "uint32".to_string(),
-            DataType::Int8 => "int8".to_string(),
-            DataType::Uint8 => "uint8".to_string(),
-            DataType::Int64 => "int64".to_string(),
-            DataType::Uint64 => "uint64".to_string(),
+        match self.inner.desc.data_type() {
+            rustnn::operator_enums::MLOperandDataType::Float32 => "float32".to_string(),
+            rustnn::operator_enums::MLOperandDataType::Float16 => "float16".to_string(),
+            rustnn::operator_enums::MLOperandDataType::Int32 => "int32".to_string(),
+            rustnn::operator_enums::MLOperandDataType::Uint32 => "uint32".to_string(),
+            rustnn::operator_enums::MLOperandDataType::Int8 => "int8".to_string(),
+            rustnn::operator_enums::MLOperandDataType::Uint8 => "uint8".to_string(),
+            rustnn::operator_enums::MLOperandDataType::Int64 => "int64".to_string(),
+            rustnn::operator_enums::MLOperandDataType::Uint64 => "uint64".to_string(),
         }
     }
 
-    /// Get the shape of the tensor
     #[getter]
     fn shape(&self) -> Vec<u32> {
-        self.tensor_descriptor.descriptor.static_or_max_shape()
+        self.inner
+            .tensor
+            .shape()
+            .iter()
+            .map(|&d| d as u32)
+            .collect()
     }
 
-    /// Get the number of elements in the tensor
     #[getter]
     fn size(&self) -> usize {
-        self.tensor_descriptor
-            .descriptor
-            .shape
+        self.inner
+            .tensor
+            .shape()
             .iter()
-            .map(|d| get_static_or_max_size(d) as usize)
-            .product()
+            .product::<u64>() as usize
     }
 
-    /// Check if tensor data can be read back to CPU
     #[getter]
-    fn readable(&self) -> bool {
-        self.tensor_descriptor.readable
+    pub(crate) fn readable(&self) -> bool {
+        self.inner.desc.readable()
     }
 
-    /// Check if tensor data can be written from CPU
     #[getter]
-    fn writable(&self) -> bool {
-        self.tensor_descriptor.writable
+    pub(crate) fn writable(&self) -> bool {
+        self.inner.desc.writable()
     }
 
-    /// Check if tensor can be exported for use as GPU texture
     #[getter]
     fn exportable_to_gpu(&self) -> bool {
-        self.tensor_descriptor.exportable_to_gpu
+        false
     }
 
-    /// Destroy the tensor and release its resources
-    ///
-    /// After calling destroy(), the tensor cannot be used for any operations.
-    /// This follows the W3C WebNN MLTensor Explainer for explicit resource management.
     fn destroy(&self) -> PyResult<()> {
         let mut destroyed = self.destroyed.lock().unwrap();
         if *destroyed {
@@ -183,202 +102,24 @@ impl PyMLTensor {
         Ok(())
     }
 
-    /// String representation
     fn __repr__(&self) -> String {
-        let shape = self.tensor_descriptor.descriptor.static_or_max_shape();
         format!(
-            "MLTensor(shape={:?}, dtype={}, readable={}, writable={}, exportable_to_gpu={})",
-            shape,
+            "MLTensor(shape={:?}, dtype={}, readable={}, writable={})",
+            self.shape(),
             self.data_type(),
             self.readable(),
-            self.writable(),
-            self.exportable_to_gpu()
+            self.writable()
         )
     }
 }
 
-/// Device-resident tensor for zero-copy execution
-///
-/// MLDeviceTensor represents a tensor that resides on device (GPU/NPU) memory,
-/// enabling persistent storage across inference steps without host round-trips.
-/// This is critical for iterative GenAI workloads like KV cache in transformers.
-#[pyclass(name = "MLDeviceTensor", skip_from_py_object)]
-pub struct PyMLDeviceTensor {
-    pub(crate) handle: rustnn::tensor::DeviceTensorHandle,
-    destroyed: Arc<Mutex<bool>>,
-}
-
-impl PyMLDeviceTensor {
-    /// Create a new device tensor from a handle
-    pub fn new(handle: rustnn::tensor::DeviceTensorHandle) -> Self {
-        Self {
-            handle,
-            destroyed: Arc::new(Mutex::new(false)),
-        }
-    }
-
-    /// Check if tensor has been destroyed
-    fn check_destroyed(&self) -> PyResult<()> {
-        if *self.destroyed.lock().unwrap() {
-            return Err(pyo3::exceptions::PyRuntimeError::new_err(
-                "Device tensor has been destroyed",
-            ));
-        }
-        Ok(())
-    }
-
-    /// Public method to read tensor data (callable from Rust)
-    pub fn read_data<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        self.read(py)
-    }
-
-    /// Public method to write tensor data (callable from Rust)
-    pub fn write_data<'py>(&mut self, py: Python<'py>, data: Bound<'py, PyAny>) -> PyResult<()> {
-        self.write(py, data)
-    }
-}
+/// Device-resident tensor — not supported on the rustnn MLContext execution path.
+#[pyclass(name = "MLDeviceTensor")]
+pub struct PyMLDeviceTensor;
 
 #[pymethods]
 impl PyMLDeviceTensor {
-    /// Get the shape of the tensor
-    #[getter]
-    fn shape(&self) -> Vec<usize> {
-        self.handle.shape.clone()
-    }
-
-    /// Get the data type of the tensor
-    #[getter]
-    fn data_type(&self) -> String {
-        match self.handle.dtype {
-            DataType::Int4 => "int4".to_string(),
-            DataType::Uint4 => "uint4".to_string(),
-            DataType::Float32 => "float32".to_string(),
-            DataType::Float16 => "float16".to_string(),
-            DataType::Int32 => "int32".to_string(),
-            DataType::Uint32 => "uint32".to_string(),
-            DataType::Int8 => "int8".to_string(),
-            DataType::Uint8 => "uint8".to_string(),
-            DataType::Int64 => "int64".to_string(),
-            DataType::Uint64 => "uint64".to_string(),
-        }
-    }
-
-    /// Get the device kind where this tensor resides
-    #[getter]
-    fn device(&self) -> String {
-        self.handle.device_kind().to_string()
-    }
-
-    /// Get the backend that created this tensor
-    #[getter]
-    fn backend(&self) -> String {
-        self.handle.backend_kind().to_string()
-    }
-
-    /// Get the number of elements in the tensor
-    #[getter]
-    fn size(&self) -> usize {
-        self.handle.shape.iter().product()
-    }
-
-    /// Read tensor data from device to host
-    ///
-    /// This performs a device-to-host memory transfer.
-    ///
-    /// Returns:
-    ///     numpy.ndarray: The tensor data as a numpy array
-    ///
-    /// Raises:
-    ///     RuntimeError: If tensor has been destroyed
-    fn read<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        self.check_destroyed()?;
-
-        let data = self.handle.inner.read_to_host().map_err(|e| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!(
-                "Failed to read device tensor: {}",
-                e
-            ))
-        })?;
-
-        let numpy = py.import("numpy")?;
-        let shape_tuple =
-            pyo3::types::PyTuple::new(py, self.handle.shape.iter().map(|&d| d as i64))?;
-        let array = numpy.call_method1("array", (data,))?;
-        let reshaped = array.call_method1("reshape", (shape_tuple,))?;
-
-        Ok(reshaped)
-    }
-
-    /// Write tensor data from host to device
-    ///
-    /// This performs a host-to-device memory transfer.
-    ///
-    /// Args:
-    ///     data: Numpy array or array-like data to write
-    ///
-    /// Raises:
-    ///     RuntimeError: If tensor has been destroyed
-    ///     ValueError: If data shape doesn't match tensor shape
-    fn write(&mut self, py: Python, data: Bound<PyAny>) -> PyResult<()> {
-        self.check_destroyed()?;
-
-        let numpy = py.import("numpy")?;
-
-        // Convert to numpy array
-        let array = numpy.call_method1("asarray", (data,))?;
-
-        // Convert to float32
-        let array_f32 = array.call_method1("astype", ("float32",))?;
-
-        // Get shape
-        let shape_obj = array_f32.getattr("shape")?;
-        let shape: Vec<usize> = shape_obj.extract()?;
-
-        // Validate shape
-        if shape != self.handle.shape {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "Shape mismatch: tensor has shape {:?}, but data has shape {:?}",
-                self.handle.shape, shape
-            )));
-        }
-
-        // Get flattened data
-        let flat = array_f32.call_method0("flatten")?;
-        let data_vec: Vec<f32> = flat.call_method0("tolist")?.extract()?;
-
-        self.handle.inner.write_from_host(&data_vec).map_err(|e| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!(
-                "Failed to write device tensor: {}",
-                e
-            ))
-        })?;
-
-        Ok(())
-    }
-
-    /// Destroy the tensor and release its device resources
-    ///
-    /// After calling destroy(), the tensor cannot be used for any operations.
-    /// This enables explicit resource management for device memory.
-    fn destroy(&self) -> PyResult<()> {
-        let mut destroyed = self.destroyed.lock().unwrap();
-        if *destroyed {
-            return Err(pyo3::exceptions::PyRuntimeError::new_err(
-                "Device tensor already destroyed",
-            ));
-        }
-        *destroyed = true;
-        Ok(())
-    }
-
-    /// String representation
     fn __repr__(&self) -> String {
-        format!(
-            "MLDeviceTensor(shape={:?}, dtype={}, device={}, backend={})",
-            self.handle.shape,
-            self.data_type(),
-            self.device(),
-            self.backend()
-        )
+        "MLDeviceTensor(not supported)".to_string()
     }
 }

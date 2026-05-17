@@ -16,6 +16,10 @@ use std::path::Path;
 #[pyclass(name = "MLGraph")]
 pub struct PyMLGraph {
     pub(crate) graph_info: GraphInfo,
+    /// Context that compiled this graph (required for execution).
+    pub(crate) context: Option<Py<super::context::PyMLContext>>,
+    /// Index into the owning context's compiled-graph arena.
+    pub(crate) graph_slot: Option<usize>,
 }
 
 #[pymethods]
@@ -407,13 +411,33 @@ impl PyMLGraph {
         let graph_info = webnn_json::from_graph_json(&graph_json)
             .map_err(|e| PyIOError::new_err(format!("Failed to convert graph: {}", e)))?;
 
-        Ok(PyMLGraph { graph_info })
+        Ok(PyMLGraph {
+            graph_info,
+            context: None,
+            graph_slot: None,
+        })
     }
 }
 
 impl PyMLGraph {
     pub fn new(graph_info: GraphInfo) -> Self {
-        Self { graph_info }
+        Self {
+            graph_info,
+            context: None,
+            graph_slot: None,
+        }
+    }
+
+    pub fn new_compiled(
+        graph_info: GraphInfo,
+        context: Py<super::context::PyMLContext>,
+        graph_slot: usize,
+    ) -> Self {
+        Self {
+            graph_info,
+            context: Some(context),
+            graph_slot: Some(graph_slot),
+        }
     }
 
     /// Delegates to [`webnn_graph::resolve_external_weights`], then surfaces a Python error if any
