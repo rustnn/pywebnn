@@ -45,16 +45,7 @@ impl PyMLTensor {
 impl PyMLTensor {
     #[getter]
     fn data_type(&self) -> String {
-        match self.inner.desc.data_type() {
-            rustnn::operator_enums::MLOperandDataType::Float32 => "float32".to_string(),
-            rustnn::operator_enums::MLOperandDataType::Float16 => "float16".to_string(),
-            rustnn::operator_enums::MLOperandDataType::Int32 => "int32".to_string(),
-            rustnn::operator_enums::MLOperandDataType::Uint32 => "uint32".to_string(),
-            rustnn::operator_enums::MLOperandDataType::Int8 => "int8".to_string(),
-            rustnn::operator_enums::MLOperandDataType::Uint8 => "uint8".to_string(),
-            rustnn::operator_enums::MLOperandDataType::Int64 => "int64".to_string(),
-            rustnn::operator_enums::MLOperandDataType::Uint64 => "uint64".to_string(),
-        }
+        self.inner.desc.data_type().as_str().to_string()
     }
 
     #[getter]

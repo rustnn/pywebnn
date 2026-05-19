@@ -12,6 +12,23 @@ use rustnn::webnn_json;
 use std::fs;
 use std::path::Path;
 
+/// After `from_graph_json` (which runs rustnn shape inference), require inferred output shapes.
+fn ensure_graph_output_shapes(graph_info: &GraphInfo) -> PyResult<()> {
+    for &output_id in &graph_info.output_operands {
+        let operand = &graph_info.operands[output_id as usize];
+        let name = operand
+            .name
+            .clone()
+            .unwrap_or_else(|| format!("output_{output_id}"));
+        if operand.descriptor.shape.is_empty() {
+            return Err(PyIOError::new_err(format!(
+                "Graph output '{name}' has no shape after load; rustnn shape inference did not complete for this graph"
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Represents a compiled computational graph
 #[pyclass(name = "MLGraph")]
 pub struct PyMLGraph {
@@ -410,6 +427,7 @@ impl PyMLGraph {
         // Convert GraphJson to GraphInfo
         let graph_info = webnn_json::from_graph_json(&graph_json)
             .map_err(|e| PyIOError::new_err(format!("Failed to convert graph: {}", e)))?;
+        ensure_graph_output_shapes(&graph_info)?;
 
         Ok(PyMLGraph {
             graph_info,
