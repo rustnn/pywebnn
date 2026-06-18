@@ -45,9 +45,9 @@ impl PyML {
     ///     decides the actual device allocation based on runtime conditions.
     ///     Query context.accelerated after creation to check if acceleration is available.
     ///     device_type="auto" uses automatic backend selection based on availability.
-    ///     device_type="cpu" forces ONNX CPU backend.
-    ///     device_type="gpu" forces ONNX GPU backend.
-    ///     device_type="npu" forces CoreML backend (macOS only).
+    ///     device_type="cpu" requests CPU execution.
+    ///     device_type="gpu" requests GPU-accelerated execution.
+    ///     device_type="npu" requests NPU execution (platform-dependent, e.g. Apple Neural Engine).
     #[pyo3(signature = (power_preference="default", accelerated=true, device_type="auto"))]
     fn create_context(
         &self,
@@ -669,24 +669,19 @@ impl PyMLContext {
     /// available (otherwise the fallback path returns zeros).
     fn backend_info(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         let info = PyDict::new(py);
-        let onnx_compiled = cfg!(feature = "onnx-runtime");
+        let execution_compiled = cfg!(feature = "onnx-runtime");
         let coreml_compiled = cfg!(all(target_os = "macos", feature = "coreml-runtime"));
         let trtx_compiled = cfg!(any(feature = "trtx-runtime", feature = "trtx-runtime-mock"));
 
-        info.set_item("backend", "rustnn_mlcontext")?;
         info.set_item("accelerated_available", self.accelerated())?;
         info.set_item("device_type_requested", &self.device_type)?;
         info.set_item("compiled_features", {
             let compiled = PyDict::new(py);
-            compiled.set_item("onnx_runtime", onnx_compiled)?;
-            compiled.set_item("coreml_runtime", coreml_compiled)?;
-            compiled.set_item("trtx_runtime", trtx_compiled)?;
+            compiled.set_item("execution", execution_compiled)?;
+            compiled.set_item("coreml", coreml_compiled)?;
+            compiled.set_item("trtx", trtx_compiled)?;
             compiled
         })?;
-        info.set_item(
-            "note",
-            "Execution uses rustnn MLContext::dispatch; CoreML/NPU not wired on this path",
-        )?;
 
         Ok(info.into())
     }

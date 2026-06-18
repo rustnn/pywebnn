@@ -43,8 +43,8 @@ def test_create_device_tensor(context, simple_graph):
     assert tensor.shape == [2, 3]
     assert tensor.data_type == "float32"
     assert tensor.size == 6
-    # Device should be cpu since we're using CPU backend
-    assert "cpu" in tensor.device.lower() or "onnx" in tensor.backend.lower()
+    # Device metadata is backend-specific; CPU contexts should report a CPU device.
+    assert "cpu" in tensor.device.lower()
 
 
 def test_device_tensor_write_read(context, simple_graph):

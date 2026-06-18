@@ -3,7 +3,9 @@
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
-use rustnn::graph::{get_static_or_max_size, DataType, GraphInfo};
+use rustnn::graph::{
+    get_static_or_max_size, pack_int4, pack_uint4, unpack_int4, unpack_uint4, DataType, GraphInfo,
+};
 use rustnn::mlcontext::{
     MLContext, MLContextOptions, MLGraph, MLGraphBuilder, MLTensor, MLTensorDescriptor,
     MLPowerPreference,
@@ -68,21 +70,58 @@ pub(crate) fn build_context_options(
 }
 
 pub(crate) fn data_type_to_ml_operand(dt: DataType) -> PyResult<MLOperandDataType> {
-    Ok(match dt {
-        DataType::Float32 => MLOperandDataType::Float32,
-        DataType::Float16 => MLOperandDataType::Float16,
-        DataType::Int32 => MLOperandDataType::Int32,
-        DataType::Uint32 => MLOperandDataType::Uint32,
-        DataType::Int8 => MLOperandDataType::Int8,
-        DataType::Uint8 => MLOperandDataType::Uint8,
-        DataType::Int64 => MLOperandDataType::Int64,
-        DataType::Uint64 => MLOperandDataType::Uint64,
-        DataType::Int4 | DataType::Uint4 => {
-            return Err(PyValueError::new_err(
-                "4-bit types are not supported for MLTensor execution",
-            ));
+    MLOperandDataType::try_from(dt).map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+fn tensor_element_count(tensor: &MLTensor) -> usize {
+    tensor.shape().iter().product::<u64>() as usize
+}
+
+fn packed_storage_bytes(data_type: DataType, elements: usize) -> PyResult<usize> {
+    data_type
+        .storage_byte_length(elements)
+        .ok_or_else(|| PyValueError::new_err(format!("invalid element count for {data_type:?}")))
+}
+
+fn extract_int4_logical_values(flat: Bound<'_, PyAny>) -> PyResult<Vec<i32>> {
+    let values: Vec<i32> = flat.call_method0("tolist")?.extract()?;
+    for (idx, value) in values.iter().enumerate() {
+        if !(-8..=7).contains(value) {
+            return Err(PyValueError::new_err(format!(
+                "int4 values must be in [-8, 7]; got {value} at index {idx}"
+            )));
         }
-    })
+    }
+    Ok(values)
+}
+
+fn extract_uint4_logical_values(flat: Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
+    let values: Vec<i32> = flat.call_method0("tolist")?.extract()?;
+    let mut out = Vec::with_capacity(values.len());
+    for (idx, value) in values.iter().enumerate() {
+        if !(0..=15).contains(value) {
+            return Err(PyValueError::new_err(format!(
+                "uint4 values must be in [0, 15]; got {value} at index {idx}"
+            )));
+        }
+        out.push(*value as u8);
+    }
+    Ok(out)
+}
+
+/// Pack NumPy logical values into WebNN constant/tensor bytes for 4-bit types.
+pub(crate) fn pack_numpy_to_4bit_bytes(
+    array: Bound<'_, PyAny>,
+    data_type: DataType,
+) -> PyResult<Vec<u8>> {
+    let flat = array.call_method0("flatten")?;
+    match data_type {
+        DataType::Int4 => Ok(pack_int4(&extract_int4_logical_values(flat)?)),
+        DataType::Uint4 => Ok(pack_uint4(&extract_uint4_logical_values(flat)?)),
+        _ => Err(PyValueError::new_err(
+            "pack_numpy_to_4bit_bytes expects int4 or uint4",
+        )),
+    }
 }
 
 pub(crate) fn ml_tensor_descriptor(
@@ -435,6 +474,19 @@ fn write_numpy_to_ml_tensor(
     _numpy: &Bound<'_, PyModule>,
 ) -> PyResult<()> {
     let dt = desc.data_type();
+    if matches!(dt, MLOperandDataType::Int4 | MLOperandDataType::Uint4) {
+        let data_type = match dt {
+            MLOperandDataType::Int4 => DataType::Int4,
+            MLOperandDataType::Uint4 => DataType::Uint4,
+            _ => unreachable!(),
+        };
+        let packed = pack_numpy_to_4bit_bytes(array, data_type)?;
+        return state
+            .ml_context
+            .write_tensor(tensor, &packed)
+            .map_err(map_rustnn_error);
+    }
+
     let array_typed = array.call_method1("astype", (dt.as_str(),))?;
     let flat = array_typed.call_method0("flatten")?;
 
@@ -499,9 +551,7 @@ fn write_numpy_to_ml_tensor(
                 .write_tensor(tensor, &data)
                 .map_err(map_rustnn_error)
         }
-        MLOperandDataType::Int4 | MLOperandDataType::Uint4 => Err(PyValueError::new_err(
-            "4-bit types are not supported for MLTensor execution",
-        )),
+        MLOperandDataType::Int4 | MLOperandDataType::Uint4 => unreachable!(),
     }
 }
 
@@ -601,9 +651,34 @@ fn read_ml_tensor_to_numpy<'py>(
             let array = numpy.call_method1("array", (buf,))?;
             array.call_method1("reshape", (shape_tuple,))
         }
-        DataType::Int4 | DataType::Uint4 => Err(PyValueError::new_err(
-            "4-bit types are not supported for MLTensor execution",
-        )),
+        DataType::Int4 => {
+            let elements = tensor_element_count(tensor);
+            let byte_len = packed_storage_bytes(data_type, elements)?;
+            let mut packed = vec![0u8; byte_len];
+            state
+                .ml_context
+                .read_tensor(tensor, &mut packed)
+                .map_err(map_rustnn_error)?;
+            let logical = unpack_int4(&packed, elements);
+            let values: Vec<i8> = logical.into_iter().map(|v| v as i8).collect();
+            let array = numpy.call_method1("array", (values,))?;
+            array.call_method1("astype", ("int8",))?
+                .call_method1("reshape", (shape_tuple,))
+        }
+        DataType::Uint4 => {
+            let elements = tensor_element_count(tensor);
+            let byte_len = packed_storage_bytes(data_type, elements)?;
+            let mut packed = vec![0u8; byte_len];
+            state
+                .ml_context
+                .read_tensor(tensor, &mut packed)
+                .map_err(map_rustnn_error)?;
+            let logical = unpack_uint4(&packed, elements);
+            let values: Vec<i32> = logical.into_iter().map(|v| v as i32).collect();
+            let array = numpy.call_method1("array", (values,))?;
+            array.call_method1("astype", ("uint8",))?
+                .call_method1("reshape", (shape_tuple,))
+        }
     }
 }
 
@@ -628,22 +703,7 @@ pub(crate) fn read_rustnn_tensor<'py>(
     tensor: &RustnnTensor,
 ) -> PyResult<Bound<'py, PyAny>> {
     let numpy = py.import("numpy")?;
-    // TODO: use rustnn::data_type_from_ml_operand_dtype once it is public (see webnn_json.rs).
-    let data_type = match tensor.desc.data_type() {
-        MLOperandDataType::Float32 => DataType::Float32,
-        MLOperandDataType::Float16 => DataType::Float16,
-        MLOperandDataType::Int32 => DataType::Int32,
-        MLOperandDataType::Uint32 => DataType::Uint32,
-        MLOperandDataType::Int8 => DataType::Int8,
-        MLOperandDataType::Uint8 => DataType::Uint8,
-        MLOperandDataType::Int64 => DataType::Int64,
-        MLOperandDataType::Uint64 => DataType::Uint64,
-        MLOperandDataType::Int4 | MLOperandDataType::Uint4 => {
-            return Err(PyValueError::new_err(
-                "4-bit types are not supported for MLTensor execution",
-            ));
-        }
-    };
+    let data_type = DataType::from(tensor.desc.data_type());
     read_ml_tensor_to_numpy(py, state, &tensor.tensor, data_type, &numpy)
 }
 

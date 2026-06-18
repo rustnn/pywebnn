@@ -7,6 +7,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use super::graph::PyMLGraph;
+use super::context_state::pack_numpy_to_4bit_bytes;
 use super::operand::{parse_data_type, PyMLOperand};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -125,8 +126,11 @@ impl PyMLGraphBuilder {
             pending_permutation: Vec::new(),
         };
 
-        // Convert array to bytes
-        let bytes: Vec<u8> = array.call_method0("tobytes")?.extract()?;
+        // Convert array to bytes (nibble-packed for int4/uint4)
+        let bytes = match actual_dtype {
+            DataType::Int4 | DataType::Uint4 => pack_numpy_to_4bit_bytes(array, actual_dtype)?,
+            _ => array.call_method0("tobytes")?.extract()?,
+        };
         let constant_data = ConstantData {
             data: bytes,
             label: None,

@@ -5,6 +5,8 @@ import sys
 import pytest
 import numpy as np
 
+from runtime_support import requires_execution_backend
+
 # Note: Import will only work after building with maturin
 try:
     import webnn
@@ -12,30 +14,6 @@ try:
 except ImportError:
     WEBNN_AVAILABLE = False
     pytestmark = pytest.mark.skip(reason="webnn not built yet")
-
-# Check if ONNX runtime is available by testing if compute returns non-zero values
-def _has_onnx_runtime():
-    """Check if ONNX runtime is available for actual computation"""
-    if not WEBNN_AVAILABLE:
-        return False
-    try:
-        ml = webnn.ML()
-        ctx = ml.create_context(power_preference="default", accelerated=False)
-        builder = ctx.create_graph_builder()
-        x = builder.input("x", [1, 1], "float32")
-        y = builder.relu(x)
-        graph = builder.build({"output": y})
-        result = ctx.compute(graph, {"x": np.array([[1.0]], dtype=np.float32)})
-        # If ONNX runtime is available, result should be non-zero
-        return np.any(result["output"] != 0)
-    except:
-        return False
-
-ONNX_RUNTIME_AVAILABLE = _has_onnx_runtime()
-requires_onnx_runtime = pytest.mark.skipif(
-    not ONNX_RUNTIME_AVAILABLE,
-    reason="ONNX runtime not available - built without onnx-runtime feature"
-)
 
 
 @pytest.fixture
@@ -204,9 +182,9 @@ def test_simple_computation(context, builder):
     assert results["z"].shape == (2, 3)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_simple_computation_with_values(context, builder):
-    """Test simple graph computation with actual values (requires ONNX runtime)"""
+    """Test simple graph computation with actual values (requires execution backend)"""
     x = builder.input("x", [2, 3], "float32")
     y = builder.input("y", [2, 3], "float32")
     z = builder.add(x, y)
@@ -271,7 +249,7 @@ def test_complex_graph(builder):
     assert set(graph.get_output_names()) == {"relu_out", "sigmoid_out"}
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_relu_computation(context, builder):
     """Test ReLU activation with actual computation"""
     x = builder.input("x", [2, 3], "float32")
@@ -290,7 +268,7 @@ def test_relu_computation(context, builder):
     np.testing.assert_allclose(results["y"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_sigmoid_computation(context, builder):
     """Test sigmoid activation with actual computation"""
     x = builder.input("x", [2, 3], "float32")
@@ -308,7 +286,7 @@ def test_sigmoid_computation(context, builder):
     np.testing.assert_allclose(results["y"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_tanh_computation(context, builder):
     """Test tanh activation with actual computation"""
     x = builder.input("x", [2, 3], "float32")
@@ -326,7 +304,7 @@ def test_tanh_computation(context, builder):
     np.testing.assert_allclose(results["y"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_softmax_computation(context, builder):
     """Test softmax activation with actual computation"""
     x = builder.input("x", [2, 3], "float32")
@@ -355,7 +333,7 @@ def test_softmax_computation(context, builder):
 
 # Basic math operations
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_abs_computation(context, builder):
     """Test element-wise absolute value"""
     x = builder.input("x", [2, 3], "float32")
@@ -372,7 +350,7 @@ def test_abs_computation(context, builder):
     np.testing.assert_allclose(results["y"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_ceil_computation(context, builder):
     """Test element-wise ceiling"""
     x = builder.input("x", [2, 3], "float32")
@@ -389,7 +367,7 @@ def test_ceil_computation(context, builder):
     np.testing.assert_allclose(results["y"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_floor_computation(context, builder):
     """Test element-wise floor"""
     x = builder.input("x", [2, 3], "float32")
@@ -406,7 +384,7 @@ def test_floor_computation(context, builder):
     np.testing.assert_allclose(results["y"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_neg_computation(context, builder):
     """Test element-wise negation"""
     x = builder.input("x", [2, 3], "float32")
@@ -423,7 +401,7 @@ def test_neg_computation(context, builder):
     np.testing.assert_allclose(results["y"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_sign_computation(context, builder):
     """Test element-wise sign"""
     x = builder.input("x", [2, 3], "float32")
@@ -442,7 +420,7 @@ def test_sign_computation(context, builder):
 
 # Exponential and logarithmic operations
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_exp_computation(context, builder):
     """Test element-wise exponential"""
     x = builder.input("x", [2, 3], "float32")
@@ -459,7 +437,7 @@ def test_exp_computation(context, builder):
     np.testing.assert_allclose(results["y"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_log_computation(context, builder):
     """Test element-wise natural logarithm"""
     x = builder.input("x", [2, 3], "float32")
@@ -476,7 +454,7 @@ def test_log_computation(context, builder):
     np.testing.assert_allclose(results["y"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_sqrt_computation(context, builder):
     """Test element-wise square root"""
     x = builder.input("x", [2, 3], "float32")
@@ -493,7 +471,7 @@ def test_sqrt_computation(context, builder):
     np.testing.assert_allclose(results["y"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_reciprocal_computation(context, builder):
     """Test element-wise reciprocal (1/x)"""
     x = builder.input("x", [2, 3], "float32")
@@ -512,7 +490,7 @@ def test_reciprocal_computation(context, builder):
 
 # Trigonometric operations
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_sin_computation(context, builder):
     """Test element-wise sine"""
     x = builder.input("x", [2, 3], "float32")
@@ -529,7 +507,7 @@ def test_sin_computation(context, builder):
     np.testing.assert_allclose(results["y"], expected, rtol=1e-5, atol=1e-7)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_cos_computation(context, builder):
     """Test element-wise cosine"""
     x = builder.input("x", [2, 3], "float32")
@@ -546,7 +524,7 @@ def test_cos_computation(context, builder):
     np.testing.assert_allclose(results["y"], expected, rtol=1e-5, atol=1e-7)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_tan_computation(context, builder):
     """Test element-wise tangent"""
     x = builder.input("x", [2, 3], "float32")
@@ -565,7 +543,7 @@ def test_tan_computation(context, builder):
 
 # Special operations
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_erf_computation(context, builder):
     """Test element-wise error function"""
     x = builder.input("x", [2, 3], "float32")
@@ -588,7 +566,7 @@ def test_erf_computation(context, builder):
         assert np.all(results["y"] >= -1) and np.all(results["y"] <= 1)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_identity_computation(context, builder):
     """Test identity operation"""
     x = builder.input("x", [2, 3], "float32")
@@ -607,7 +585,7 @@ def test_identity_computation(context, builder):
 
 # Logic operations tests
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_equal_computation(context, builder):
     """Test element-wise equality comparison"""
     a = builder.input("a", [2, 3], "float32")
@@ -626,7 +604,7 @@ def test_equal_computation(context, builder):
     np.testing.assert_array_equal(results["y"], expected)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_greater_computation(context, builder):
     """Test element-wise greater than comparison"""
     a = builder.input("a", [2, 3], "float32")
@@ -645,7 +623,7 @@ def test_greater_computation(context, builder):
     np.testing.assert_array_equal(results["y"], expected)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_greater_or_equal_computation(context, builder):
     """Test element-wise greater than or equal comparison"""
     a = builder.input("a", [2, 3], "float32")
@@ -664,7 +642,7 @@ def test_greater_or_equal_computation(context, builder):
     np.testing.assert_array_equal(results["y"], expected)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_lesser_computation(context, builder):
     """Test element-wise less than comparison"""
     a = builder.input("a", [2, 3], "float32")
@@ -683,7 +661,7 @@ def test_lesser_computation(context, builder):
     np.testing.assert_array_equal(results["y"], expected)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_lesser_or_equal_computation(context, builder):
     """Test element-wise less than or equal comparison"""
     a = builder.input("a", [2, 3], "float32")
@@ -702,7 +680,7 @@ def test_lesser_or_equal_computation(context, builder):
     np.testing.assert_array_equal(results["y"], expected)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_logical_not_computation(context, builder):
     """Test element-wise logical NOT"""
     x = builder.input("x", [2, 3], "float32")
@@ -720,7 +698,7 @@ def test_logical_not_computation(context, builder):
     np.testing.assert_array_equal(results["y"], expected)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_logical_and_computation(context, builder):
     """Test element-wise logical AND"""
     a = builder.input("a", [2, 3], "float32")
@@ -740,7 +718,7 @@ def test_logical_and_computation(context, builder):
     np.testing.assert_array_equal(results["y"], expected)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_logical_or_computation(context, builder):
     """Test element-wise logical OR"""
     a = builder.input("a", [2, 3], "float32")
@@ -760,7 +738,7 @@ def test_logical_or_computation(context, builder):
     np.testing.assert_array_equal(results["y"], expected)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_logical_xor_computation(context, builder):
     """Test element-wise logical XOR"""
     a = builder.input("a", [2, 3], "float32")
@@ -780,7 +758,7 @@ def test_logical_xor_computation(context, builder):
     np.testing.assert_array_equal(results["y"], expected)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_chained_operations(context, builder):
     """Test chained operations with actual computation"""
     x = builder.input("x", [2, 3], "float32")
@@ -802,7 +780,7 @@ def test_chained_operations(context, builder):
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_matmul_computation(context, builder):
     """Test matrix multiplication with actual computation"""
     a = builder.input("a", [2, 3], "float32")
@@ -822,7 +800,7 @@ def test_matmul_computation(context, builder):
     np.testing.assert_allclose(results["c"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_multi_output_computation(context, builder):
     """Test graph with multiple outputs"""
     x = builder.input("x", [2, 3], "float32")
@@ -1395,7 +1373,7 @@ def test_reshape_invalid(builder):
         builder.reshape(x, [5])
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_broadcasting_computation(context, builder):
     """Test that broadcasting works with actual computation"""
     a = builder.input("a", [2, 3], "float32")
@@ -1549,7 +1527,7 @@ def test_tensor_read_write_permissions(context):
         context.read_tensor(tensor_writeonly)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_dispatch_method(context, builder):
     """Test dispatch() method for async execution per W3C MLTensor Explainer"""
     # Build a simple graph
@@ -1576,7 +1554,7 @@ def test_dispatch_method(context, builder):
     np.testing.assert_array_equal(result, expected)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_tensor_workflow(context, builder):
     """Test complete tensor workflow with graph execution"""
     # Create tensors for inputs and outputs
@@ -1692,9 +1670,9 @@ async def test_async_concurrent_operations(async_context):
 
 
 @pytest.mark.asyncio
-@requires_onnx_runtime
+@requires_execution_backend
 async def test_async_dispatch_with_actual_computation(async_context):
-    """Test async dispatch with actual ONNX computation"""
+    """Test async dispatch with actual graph computation"""
     builder = async_context.create_graph_builder()
 
     # Build graph: output = relu(x + y)
@@ -2012,6 +1990,62 @@ def test_dequantize_linear_int4_blockwise(context):
     y = builder.dequantize_linear(qx, scale, zero_point)
     assert y.data_type == "float32"
     graph = builder.build({"y": y})
+
+
+@requires_execution_backend
+def test_dequantize_linear_int4_blockwise_compute(context):
+    """DequantizeLinear with int4 input via compute()"""
+    builder = context.create_graph_builder()
+    qx = builder.input("qx", [2, 2], "int4")
+    scale = builder.constant(np.array([[0.5, 2.0], [0.5, 2.0]], dtype=np.float32))
+    zero_point = builder.constant(np.array([[0, -1], [0, -1]], dtype=np.int8))
+    y = builder.dequantize_linear(qx, scale, zero_point)
+    graph = builder.build({"y": y})
+
+    qx_data = np.array([[2, -1], [0, 7]], dtype=np.int8)
+    result = context.compute(graph, {"qx": qx_data})["y"]
+    expected = np.array([[1.0, 0.0], [0.0, 16.0]], dtype=np.float32)
+    np.testing.assert_allclose(result, expected, rtol=1e-5)
+
+
+def test_int4_tensor_read_write_roundtrip(context):
+    """MLTensor int4 write/read round-trip using int8 carrier arrays"""
+    tensor = context.create_host_tensor([4], "int4")
+    values = np.array([2, -1, 0, 7], dtype=np.int8)
+    context.write_tensor(tensor, values)
+    read_back = context.read_tensor(tensor)
+    np.testing.assert_array_equal(read_back, values)
+    assert read_back.dtype == np.int8
+
+
+def test_uint4_tensor_read_write_roundtrip(context):
+    """MLTensor uint4 write/read round-trip using uint8 carrier arrays"""
+    tensor = context.create_host_tensor([4], "uint4")
+    values = np.array([0, 15, 7, 3], dtype=np.uint8)
+    context.write_tensor(tensor, values)
+    read_back = context.read_tensor(tensor)
+    np.testing.assert_array_equal(read_back, values)
+    assert read_back.dtype == np.uint8
+
+
+def test_int4_constant_packed(context):
+    """int4 constants are nibble-packed and usable in compiled graphs"""
+    builder = context.create_graph_builder()
+    c = builder.constant(np.array([2, -1, 0, 7], dtype=np.int8), data_type="int4")
+    assert c.data_type == "int4"
+    assert c.shape == [4]
+    scale = builder.constant(np.array(1.0, dtype=np.float32))
+    zero_point = builder.constant(np.array(0, dtype=np.int8))
+    y = builder.dequantize_linear(c, scale, zero_point)
+    graph = builder.build({"y": y})
+    assert graph.operation_count == 1
+
+
+def test_int4_out_of_range_rejected(context):
+    """int4 write rejects values outside [-8, 7]"""
+    tensor = context.create_host_tensor([1], "int4")
+    with pytest.raises(Exception, match="int4 values must be in"):
+        context.write_tensor(tensor, np.array([8], dtype=np.int8))
 
 
 def test_quantized_roundtrip_save_and_load(tmp_path, context):
@@ -2855,7 +2889,7 @@ def test_triangular_non_square(context):
 # ============================================================================
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_prelu_basic(context):
     """Test PReLU activation with basic slope tensor"""
     builder = context.create_graph_builder()
@@ -2876,7 +2910,7 @@ def test_prelu_basic(context):
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_prelu_per_channel(context):
     """Test PReLU with per-channel slopes"""
     builder = context.create_graph_builder()
@@ -2894,7 +2928,7 @@ def test_prelu_per_channel(context):
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_prelu_broadcast_slope(context):
     """Test PReLU with broadcasted slope"""
     builder = context.create_graph_builder()
@@ -2911,7 +2945,7 @@ def test_prelu_broadcast_slope(context):
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_elu_default_alpha(context):
     """Test ELU activation with default alpha=1.0"""
     builder = context.create_graph_builder()
@@ -2930,7 +2964,7 @@ def test_elu_default_alpha(context):
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_elu_custom_alpha(context):
     """Test ELU activation with custom alpha"""
     builder = context.create_graph_builder()
@@ -2946,7 +2980,7 @@ def test_elu_custom_alpha(context):
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_elu_multidimensional(context):
     """Test ELU with multidimensional input"""
     builder = context.create_graph_builder()
@@ -2962,7 +2996,7 @@ def test_elu_multidimensional(context):
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_leaky_relu_default_alpha(context):
     """Test Leaky ReLU with default alpha=0.01"""
     builder = context.create_graph_builder()
@@ -2981,7 +3015,7 @@ def test_leaky_relu_default_alpha(context):
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_leaky_relu_custom_alpha(context):
     """Test Leaky ReLU with custom alpha"""
     builder = context.create_graph_builder()
@@ -2997,7 +3031,7 @@ def test_leaky_relu_custom_alpha(context):
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_leaky_relu_multidimensional(context):
     """Test Leaky ReLU with 4D input"""
     builder = context.create_graph_builder()
@@ -3013,7 +3047,7 @@ def test_leaky_relu_multidimensional(context):
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_softplus_basic(context):
     """Test softplus activation: log(1 + exp(x))"""
     builder = context.create_graph_builder()
@@ -3032,7 +3066,7 @@ def test_softplus_basic(context):
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_softplus_multidimensional(context):
     """Test softplus with 3D input"""
     builder = context.create_graph_builder()
@@ -3050,7 +3084,7 @@ def test_softplus_multidimensional(context):
     np.testing.assert_allclose(results["output"], expected, rtol=5e-4)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_softsign_basic(context):
     """Test softsign activation: x / (1 + |x|)"""
     builder = context.create_graph_builder()
@@ -3069,7 +3103,7 @@ def test_softsign_basic(context):
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_softsign_multidimensional(context):
     """Test softsign with 3D input"""
     builder = context.create_graph_builder()
@@ -3085,7 +3119,7 @@ def test_softsign_multidimensional(context):
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_hard_sigmoid_default_params(context):
     """Test hard sigmoid with default alpha=0.2, beta=0.5"""
     builder = context.create_graph_builder()
@@ -3104,7 +3138,7 @@ def test_hard_sigmoid_default_params(context):
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_hard_sigmoid_custom_params(context):
     """Test hard sigmoid with custom alpha and beta"""
     builder = context.create_graph_builder()
@@ -3120,7 +3154,7 @@ def test_hard_sigmoid_custom_params(context):
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_hard_sigmoid_multidimensional(context):
     """Test hard sigmoid with 4D input"""
     builder = context.create_graph_builder()
@@ -3137,7 +3171,7 @@ def test_hard_sigmoid_multidimensional(context):
 
 
 @pytest.mark.skip(reason="HardSwish requires ONNX opset 14+, runtime 1.17.0 uses opset 13")
-@requires_onnx_runtime
+@requires_execution_backend
 def test_hard_swish_default_params(context):
     """Test hard swish with default alpha=1/6, beta=0.5"""
     builder = context.create_graph_builder()
@@ -3160,7 +3194,7 @@ def test_hard_swish_default_params(context):
 
 
 @pytest.mark.skip(reason="HardSwish requires ONNX opset 14+, runtime 1.17.0 uses opset 13")
-@requires_onnx_runtime
+@requires_execution_backend
 def test_hard_swish_custom_params(context):
     """Test hard swish with custom alpha and beta"""
     builder = context.create_graph_builder()
@@ -3178,7 +3212,7 @@ def test_hard_swish_custom_params(context):
 
 
 @pytest.mark.skip(reason="HardSwish requires ONNX opset 14+, runtime 1.17.0 uses opset 13")
-@requires_onnx_runtime
+@requires_execution_backend
 def test_hard_swish_multidimensional(context):
     """Test hard swish with 3D input"""
     builder = context.create_graph_builder()
@@ -3200,7 +3234,7 @@ def test_hard_swish_multidimensional(context):
 # ============================================================================
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_clamp_basic(context):
     """Test clamp with min and max values"""
     builder = context.create_graph_builder()
@@ -3219,7 +3253,7 @@ def test_clamp_basic(context):
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_clamp_relu6(context):
     """Test clamp as ReLU6 (min=0, max=6)"""
     builder = context.create_graph_builder()
@@ -3234,7 +3268,7 @@ def test_clamp_relu6(context):
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_clamp_multidimensional(context):
     """Test clamp with multidimensional input"""
     builder = context.create_graph_builder()
@@ -3273,7 +3307,7 @@ def test_clamp_invalid_range(context):
 # ============================================================================
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_gemm_basic(context):
     """Test basic GEMM: C = A * B"""
     builder = context.create_graph_builder()
@@ -3293,7 +3327,7 @@ def test_gemm_basic(context):
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_gemm_transpose_a(context):
     """Test GEMM with A transposed"""
     builder = context.create_graph_builder()
@@ -3311,7 +3345,7 @@ def test_gemm_transpose_a(context):
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_gemm_transpose_b(context):
     """Test GEMM with B transposed"""
     builder = context.create_graph_builder()
@@ -3329,7 +3363,7 @@ def test_gemm_transpose_b(context):
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_gemm_transpose_both(context):
     """Test GEMM with both A and B transposed"""
     builder = context.create_graph_builder()
@@ -3347,7 +3381,7 @@ def test_gemm_transpose_both(context):
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_gemm_with_bias(context):
     """Test GEMM with bias: C = A * B + c"""
     builder = context.create_graph_builder()
@@ -3367,7 +3401,7 @@ def test_gemm_with_bias(context):
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
-@requires_onnx_runtime
+@requires_execution_backend
 def test_gemm_with_alpha_beta(context):
     """Test GEMM with scaling factors: C = alpha * A * B + beta * c"""
     builder = context.create_graph_builder()

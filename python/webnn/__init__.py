@@ -28,10 +28,14 @@ from typing import Dict, Optional
 import numpy as np
 import numpy.typing as npt
 
-# Set up ONNX Runtime dynamic library path if not already set.
-# Users can override by setting ORT_DYLIB_PATH before importing webnn.
+# Configure the native runtime library path when needed (implementation detail).
+# Users may set WEBNN_RUNTIME_LIBRARY before importing webnn.
+_RUNTIME_LIBRARY_ENV = "WEBNN_RUNTIME_LIBRARY"
+if _RUNTIME_LIBRARY_ENV in os.environ:
+    os.environ.setdefault("ORT_DYLIB_PATH", os.environ[_RUNTIME_LIBRARY_ENV])
+
 if "ORT_DYLIB_PATH" not in os.environ:
-    def _is_core_ort_library(path: str) -> bool:
+    def _is_core_runtime_library(path: str) -> bool:
         name = os.path.basename(path).lower()
         if any(token in name for token in ("providers", "pybind", "extensions")):
             return False
@@ -41,61 +45,54 @@ if "ORT_DYLIB_PATH" not in os.environ:
             return name.startswith("onnxruntime") and name.endswith(".dll")
         return name.startswith("libonnxruntime.so")
 
-    def _exports_ort_api_base(path: str) -> bool:
+    def _exports_runtime_api(path: str) -> bool:
         try:
             lib = ctypes.CDLL(path)
             return hasattr(lib, "OrtGetApiBase")
         except Exception:
             return False
 
-    def _pick_ort_dylib(candidates):
-        core_candidates = [p for p in candidates if _is_core_ort_library(p)]
-        # Prefer stable ordering and shortest basename (libonnxruntime.so before versioned variants).
+    def _pick_runtime_library(candidates):
+        core_candidates = [p for p in candidates if _is_core_runtime_library(p)]
         core_candidates.sort(key=lambda p: (len(os.path.basename(p)), os.path.basename(p)))
         for candidate in core_candidates:
-            if _exports_ort_api_base(candidate):
+            if _exports_runtime_api(candidate):
                 return candidate
         return None
 
-    # Try to find ONNX Runtime from the installed onnxruntime package
     try:
-        import onnxruntime
         import glob
 
-        # Get the onnxruntime package directory
-        ort_file = getattr(onnxruntime, "__file__", None)
-        ort_package_dir = (
-            os.path.dirname(os.path.abspath(str(ort_file))) if ort_file else ""
+        import onnxruntime
+
+        runtime_file = getattr(onnxruntime, "__file__", None)
+        runtime_package_dir = (
+            os.path.dirname(os.path.abspath(str(runtime_file))) if runtime_file else ""
         )
 
-        if ort_package_dir:
-            # ONNX Runtime libraries are typically in the capi subdirectory
-            ort_capi_dir = os.path.join(ort_package_dir, "capi")
+        if runtime_package_dir:
+            capi_dir = os.path.join(runtime_package_dir, "capi")
 
-            # Check for platform-specific library files
             if sys.platform == "darwin":
                 lib_pattern = "libonnxruntime*.dylib"
             elif sys.platform == "win32":
                 lib_pattern = "onnxruntime*.dll"
-            else:  # Linux and other Unix-like
+            else:
                 lib_pattern = "libonnxruntime*.so*"
 
-            # Look for the library in the capi directory
-            if os.path.exists(ort_capi_dir):
-                ort_libs = glob.glob(os.path.join(ort_capi_dir, lib_pattern))
-                selected = _pick_ort_dylib(ort_libs)
+            if os.path.exists(capi_dir):
+                libs = glob.glob(os.path.join(capi_dir, lib_pattern))
+                selected = _pick_runtime_library(libs)
                 if selected:
                     os.environ["ORT_DYLIB_PATH"] = selected
 
-            # Fallback: check the main package directory
             if "ORT_DYLIB_PATH" not in os.environ:
-                ort_libs = glob.glob(os.path.join(ort_package_dir, lib_pattern))
-                selected = _pick_ort_dylib(ort_libs)
+                libs = glob.glob(os.path.join(runtime_package_dir, lib_pattern))
+                selected = _pick_runtime_library(libs)
                 if selected:
                     os.environ["ORT_DYLIB_PATH"] = selected
 
     except ImportError:
-        # onnxruntime package not installed - user must set ORT_DYLIB_PATH manually
         pass
 
 from ._rustnn import (
