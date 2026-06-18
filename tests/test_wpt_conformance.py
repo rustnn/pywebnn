@@ -28,6 +28,7 @@ import pytest
 from runtime_support import COREML_BACKEND_AVAILABLE, EXECUTION_BACKEND_AVAILABLE
 
 from wpt_assert import assert_output_close
+from wpt_tolerance_fallback import compute_wpt_tolerance_fallback
 from wpt_execute_graph import execute_graph_resources, normalize_op_name
 from wpt_js_loader import (
     default_wpt_dir,
@@ -227,7 +228,12 @@ def test_wpt_conformance(context, backend_name, wpt_test_case, wpt_file, operati
 
     tolerance = wpt_test_case.get("tolerance")
     if tolerance is None:
-        tolerance = resolve_wpt_tolerance(Path(wpt_file), graph, wpt_dir=default_wpt_dir())
+        try:
+            tolerance = resolve_wpt_tolerance(Path(wpt_file), graph, wpt_dir=default_wpt_dir())
+        except RuntimeError:
+            tolerance = None
+    if tolerance is None:
+        tolerance = compute_wpt_tolerance_fallback(graph)
     operators = graph.get("operators") or []
     graph_operator_names = [normalize_op_name(op.get("name", "")) for op in operators]
     last_op = graph_operator_names[-1] if graph_operator_names else "unknown"

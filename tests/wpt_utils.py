@@ -47,6 +47,29 @@ def format_test_failure(
     return "\n".join(lines)
 
 
+def _clamp_wpt_int64(value: int) -> int:
+    """Clamp out-of-range WPT/JS Number literals to int64 (e.g. INT64_MIN approximations)."""
+    info = np.iinfo(np.int64)
+    if value > info.max:
+        return int(info.max)
+    if value < info.min:
+        return int(info.min)
+    return value
+
+
+def _parse_wpt_int64_scalar(value: Any) -> int:
+    if isinstance(value, str):
+        text = value.strip()
+        if text.endswith("n"):
+            return _clamp_wpt_int64(int(text[:-1]))
+        return _clamp_wpt_int64(int(text))
+    if isinstance(value, int):
+        return _clamp_wpt_int64(value)
+    if isinstance(value, float):
+        return _clamp_wpt_int64(int(value))
+    raise TypeError(f"cannot parse int64 WPT value: {value!r}")
+
+
 def convert_bigint_values(data: Any) -> Any:
     """Recursively convert JavaScript bigint literals (strings ending with 'n') to int."""
     if isinstance(data, str) and data.endswith("n"):
@@ -85,6 +108,12 @@ def numpy_array_from_test_data(test_data: Dict[str, Any]) -> np.ndarray:
 
     if isinstance(data, (int, float)):
         total_elements = math.prod(shape) if shape else 1
-        return np.full(shape, data, dtype=np_dtype)
+        fill = _parse_wpt_int64_scalar(data) if dtype_str == "int64" else data
+        if dtype_str == "uint64":
+            fill = int(data)
+        return np.full(shape, fill, dtype=np_dtype)
+
+    if dtype_str == "int64":
+        return np.array([_parse_wpt_int64_scalar(v) for v in data], dtype=np_dtype).reshape(shape)
 
     return np.array(data, dtype=np_dtype).reshape(shape)

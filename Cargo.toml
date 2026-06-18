@@ -23,8 +23,8 @@ dynamic-inputs = ["rustnn/dynamic-inputs"]
 [dependencies]
 pyo3 = { version = "0.28", features = ["extension-module"] }
 bytemuck = "1.14"
-rustnn = { git = "https://github.com/rustnn/rustnn", branch = "main" }
-#rustnn = { path = "../rustnn" }
+rustnn = { path = "../rustnn" }
+#rustnn = { git = "https://github.com/rustnn/rustnn", branch = "main" }
 serde_json = "1.0"
 webnn-graph = { git = "https://github.com/rustnn/webnn-graph", branch = "main" }
 half = "2.4"

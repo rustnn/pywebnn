@@ -569,6 +569,18 @@ fn write_numpy_to_ml_tensor(
     }
 }
 
+fn numpy_array_from_bytes<'py>(
+    py: Python<'py>,
+    numpy: &Bound<'py, PyModule>,
+    bytes: &[u8],
+    dtype: &str,
+    shape_tuple: &Bound<'py, PyTuple>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let py_bytes = PyBytes::new(py, bytes);
+    let array = numpy.call_method1("frombuffer", (py_bytes, dtype))?;
+    array.call_method1("reshape", (shape_tuple,))
+}
+
 fn read_ml_tensor_to_numpy<'py>(
     py: Python<'py>,
     state: &mut ContextState,
@@ -642,8 +654,7 @@ fn read_ml_tensor_to_numpy<'py>(
                 .ml_context
                 .read_tensor(tensor, &mut buf)
                 .map_err(map_rustnn_error)?;
-            let array = numpy.call_method1("array", (buf,))?;
-            array.call_method1("reshape", (shape_tuple,))
+            numpy_array_from_bytes(py, numpy, &buf, "uint8", &shape_tuple)
         }
         DataType::Int64 => {
             let n = tensor.shape().iter().product::<u64>() as usize;
