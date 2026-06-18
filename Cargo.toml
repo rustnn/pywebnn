@@ -9,7 +9,7 @@ keywords = ["webnn", "python", "machine-learning", "neural-networks", "ai"]
 categories = ["api-bindings", "science"]
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 name = "pywebnn"
 
 [features]
@@ -22,14 +22,16 @@ dynamic-inputs = ["rustnn/dynamic-inputs"]
 
 [dependencies]
 pyo3 = { version = "0.28", features = ["extension-module"] }
+bytemuck = "1.14"
 rustnn = { git = "https://github.com/rustnn/rustnn", branch = "main" }
+#rustnn = { path = "../rustnn" }
 serde_json = "1.0"
 webnn-graph = { git = "https://github.com/rustnn/webnn-graph", branch = "main" }
 half = "2.4"
 regex = "1.11"
 # Optional runtime dependencies
 ndarray = { version = "0.16", optional = true }
-ort = { version = "=2.0.0-rc.11", optional = true, features = ["ndarray", "half", "load-dynamic"] }
+ort = { version = "=2.0.0-rc.12", optional = true, features = ["ndarray", "half", "load-dynamic"] }
 objc = { version = "0.2", optional = true }
 
 # Make this crate independent from the parent workspace

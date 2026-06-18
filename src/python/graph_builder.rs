@@ -1982,12 +1982,27 @@ impl PyMLGraphBuilder {
         }
         // 0D no-op: output shape is same as input
 
+        let strides_vec: Vec<u32> = strides
+            .as_ref()
+            .map(|s| s.iter().map(|&x| x as u32).collect())
+            .unwrap_or_default();
+        let strides_arg = if strides_vec.is_empty() {
+            None
+        } else {
+            Some(strides_vec.as_slice())
+        };
+
         // Infer output shape (for 0D with empty starts/sizes, use input shape; else infer)
         let output_shape = if input_rank == 0 && starts.is_empty() {
             input.descriptor.static_or_max_shape()
         } else {
-            infer_slice_shape(&input.descriptor.static_or_max_shape(), &starts, &sizes)
-                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?
+            infer_slice_shape(
+                &input.descriptor.static_or_max_shape(),
+                &starts,
+                &sizes,
+                strides_arg,
+            )
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?
         };
 
         let output_descriptor = OperandDescriptor {
@@ -1998,10 +2013,6 @@ impl PyMLGraphBuilder {
 
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
-
-        let strides_vec: Vec<u32> = strides
-            .map(|s| s.iter().map(|&x| x as u32).collect())
-            .unwrap_or_default();
 
         let sizes_dims: Vec<MLDimension> = sizes.iter().copied().map(MLDimension::Static).collect();
 

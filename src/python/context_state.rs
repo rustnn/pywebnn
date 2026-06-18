@@ -64,10 +64,7 @@ pub(crate) fn build_context_options(
             )));
         }
     };
-    Ok(MLContextOptions {
-        power_preference,
-        accelerated,
-    })
+    Ok(MLContextOptions::new(power_preference, accelerated))
 }
 
 pub(crate) fn data_type_to_ml_operand(dt: DataType) -> PyResult<MLOperandDataType> {
@@ -124,7 +121,9 @@ impl ContextState {
         let info: &'static GraphInfo = Box::leak(Box::new(graph_info));
         self._graph_info_storage.push(info);
         let mut builder = MLGraphBuilder::new(&mut self.ml_context).map_err(map_rustnn_error)?;
-        let ml_graph = builder.build_graph_info(info).map_err(map_rustnn_error)?;
+        let ml_graph = builder
+            .build_graph_info(info.clone())
+            .map_err(map_rustnn_error)?;
         let ml_graph =
             unsafe { std::mem::transmute::<MLGraph<'_>, MLGraph<'static>>(ml_graph) };
         let slot = self.graphs.len();
@@ -500,6 +499,9 @@ fn write_numpy_to_ml_tensor(
                 .write_tensor(tensor, &data)
                 .map_err(map_rustnn_error)
         }
+        MLOperandDataType::Int4 | MLOperandDataType::Uint4 => Err(PyValueError::new_err(
+            "4-bit types are not supported for MLTensor execution",
+        )),
     }
 }
 
@@ -636,6 +638,11 @@ pub(crate) fn read_rustnn_tensor<'py>(
         MLOperandDataType::Uint8 => DataType::Uint8,
         MLOperandDataType::Int64 => DataType::Int64,
         MLOperandDataType::Uint64 => DataType::Uint64,
+        MLOperandDataType::Int4 | MLOperandDataType::Uint4 => {
+            return Err(PyValueError::new_err(
+                "4-bit types are not supported for MLTensor execution",
+            ));
+        }
     };
     read_ml_tensor_to_numpy(py, state, &tensor.tensor, data_type, &numpy)
 }
