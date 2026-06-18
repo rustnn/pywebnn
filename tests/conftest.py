@@ -37,6 +37,16 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "slow: Tests with large inputs that take longer to run")
 
 
+def pytest_addoption(parser):
+    parser.addoption(
+        "--wpt-backend",
+        action="store",
+        default=None,
+        choices=["cpu", "coreml", "all"],
+        help="Backend for WPT conformance tests (default: cpu, or WPT_BACKEND env)",
+    )
+
+
 @pytest.fixture(scope="session")
 def ml():
     """Create ML instance (session-scoped)."""

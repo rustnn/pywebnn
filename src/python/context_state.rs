@@ -2,7 +2,7 @@
 
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyTuple};
+use pyo3::types::{PyBytes, PyDict, PyTuple};
 use rustnn::graph::{
     get_static_or_max_size, pack_int4, pack_uint4, unpack_int4, unpack_uint4, DataType, GraphInfo,
 };
@@ -83,30 +83,76 @@ fn packed_storage_bytes(data_type: DataType, elements: usize) -> PyResult<usize>
         .ok_or_else(|| PyValueError::new_err(format!("invalid element count for {data_type:?}")))
 }
 
-fn extract_int4_logical_values(flat: Bound<'_, PyAny>) -> PyResult<Vec<i32>> {
-    let values: Vec<i32> = flat.call_method0("tolist")?.extract()?;
-    for (idx, value) in values.iter().enumerate() {
-        if !(-8..=7).contains(value) {
+fn write_pod_buffer<T>(
+    state: &mut ContextState,
+    tensor: &MLTensor,
+    array: &Bound<'_, PyAny>,
+    expected_len: usize,
+) -> PyResult<()>
+where
+    T: Copy + bytemuck::Pod,
+{
+    let bytes = array.call_method0("tobytes")?;
+    let raw = bytes.cast::<PyBytes>()?.as_bytes();
+    let typed: &[T] = bytemuck::try_cast_slice(raw).map_err(|_| {
+        PyValueError::new_err("write_tensor: invalid buffer size for tensor data type")
+    })?;
+    if typed.len() != expected_len {
+        return Err(PyValueError::new_err(format!(
+            "Shape mismatch: expected {expected_len} elements, got {}",
+            typed.len()
+        )));
+    }
+    state
+        .ml_context
+        .write_tensor(tensor, typed)
+        .map_err(map_rustnn_error)
+}
+
+fn extract_int4_logical_values(flat: &Bound<'_, PyAny>) -> PyResult<Vec<i32>> {
+    let n: usize = flat.getattr("size")?.extract()?;
+    let bytes = flat.call_method0("tobytes")?;
+    let raw = bytes.cast::<PyBytes>()?.as_bytes();
+    let slice: &[i8] = bytemuck::try_cast_slice(raw).map_err(|_| {
+        PyValueError::new_err("write_tensor: invalid int4 buffer size")
+    })?;
+    if slice.len() != n {
+        return Err(PyValueError::new_err(format!(
+            "Shape mismatch: expected {n} int4 elements, got {}",
+            slice.len()
+        )));
+    }
+    for (idx, &value) in slice.iter().enumerate() {
+        if !(-8..=7).contains(&(value as i32)) {
             return Err(PyValueError::new_err(format!(
                 "int4 values must be in [-8, 7]; got {value} at index {idx}"
             )));
         }
     }
-    Ok(values)
+    Ok(slice.iter().map(|&v| v as i32).collect())
 }
 
-fn extract_uint4_logical_values(flat: Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
-    let values: Vec<i32> = flat.call_method0("tolist")?.extract()?;
-    let mut out = Vec::with_capacity(values.len());
-    for (idx, value) in values.iter().enumerate() {
-        if !(0..=15).contains(value) {
+fn extract_uint4_logical_values(flat: &Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
+    let n: usize = flat.getattr("size")?.extract()?;
+    let bytes = flat.call_method0("tobytes")?;
+    let raw = bytes.cast::<PyBytes>()?.as_bytes();
+    let slice: &[u8] = bytemuck::try_cast_slice(raw).map_err(|_| {
+        PyValueError::new_err("write_tensor: invalid uint4 buffer size")
+    })?;
+    if slice.len() != n {
+        return Err(PyValueError::new_err(format!(
+            "Shape mismatch: expected {n} uint4 elements, got {}",
+            slice.len()
+        )));
+    }
+    for (idx, &value) in slice.iter().enumerate() {
+        if value > 15 {
             return Err(PyValueError::new_err(format!(
                 "uint4 values must be in [0, 15]; got {value} at index {idx}"
             )));
         }
-        out.push(*value as u8);
     }
-    Ok(out)
+    Ok(slice.to_vec())
 }
 
 /// Pack NumPy logical values into WebNN constant/tensor bytes for 4-bit types.
@@ -116,8 +162,8 @@ pub(crate) fn pack_numpy_to_4bit_bytes(
 ) -> PyResult<Vec<u8>> {
     let flat = array.call_method0("flatten")?;
     match data_type {
-        DataType::Int4 => Ok(pack_int4(&extract_int4_logical_values(flat)?)),
-        DataType::Uint4 => Ok(pack_uint4(&extract_uint4_logical_values(flat)?)),
+        DataType::Int4 => Ok(pack_int4(&extract_int4_logical_values(&flat)?)),
+        DataType::Uint4 => Ok(pack_uint4(&extract_uint4_logical_values(&flat)?)),
         _ => Err(PyValueError::new_err(
             "pack_numpy_to_4bit_bytes expects int4 or uint4",
         )),
@@ -465,21 +511,39 @@ pub(crate) fn compute_with_dispatch(
     Ok(result.into())
 }
 
+fn coerce_contiguous_write_array<'py>(
+    numpy: &Bound<'py, PyModule>,
+    data: &Bound<'py, PyAny>,
+    dtype_str: &str,
+) -> PyResult<Bound<'py, PyAny>> {
+    let array = numpy.call_method1("asarray", (data,))?;
+    let typed = array.call_method1("astype", (dtype_str,))?;
+    numpy.call_method1("ascontiguousarray", (typed,))
+}
+
 fn write_numpy_to_ml_tensor(
-    _py: Python,
+    _py: Python<'_>,
     state: &mut ContextState,
     tensor: &MLTensor,
     desc: &MLTensorDescriptor,
-    array: Bound<'_, PyAny>,
-    _numpy: &Bound<'_, PyModule>,
+    data: Bound<'_, PyAny>,
+    numpy: &Bound<'_, PyModule>,
 ) -> PyResult<()> {
     let dt = desc.data_type();
+    let element_count = tensor_element_count(tensor);
+
     if matches!(dt, MLOperandDataType::Int4 | MLOperandDataType::Uint4) {
         let data_type = match dt {
             MLOperandDataType::Int4 => DataType::Int4,
             MLOperandDataType::Uint4 => DataType::Uint4,
             _ => unreachable!(),
         };
+        let carrier_dtype = if data_type == DataType::Int4 {
+            "int8"
+        } else {
+            "uint8"
+        };
+        let array = coerce_contiguous_write_array(numpy, &data, carrier_dtype)?;
         let packed = pack_numpy_to_4bit_bytes(array, data_type)?;
         return state
             .ml_context
@@ -487,70 +551,20 @@ fn write_numpy_to_ml_tensor(
             .map_err(map_rustnn_error);
     }
 
-    let array_typed = array.call_method1("astype", (dt.as_str(),))?;
-    let flat = array_typed.call_method0("flatten")?;
+    let flat = coerce_contiguous_write_array(numpy, &data, dt.as_str())?;
 
     match dt {
-        MLOperandDataType::Float32 => {
-            let data: Vec<f32> = flat.call_method0("tolist")?.extract()?;
-            state
-                .ml_context
-                .write_tensor(tensor, &data)
-                .map_err(map_rustnn_error)
-        }
+        MLOperandDataType::Float32 => write_pod_buffer::<f32>(state, tensor, &flat, element_count),
         MLOperandDataType::Float16 => {
-            let data_f32: Vec<f32> = flat.call_method0("tolist")?.extract()?;
-            let data: Vec<u16> = data_f32
-                .iter()
-                .map(|f| half::f16::from_f32(*f).to_bits())
-                .collect();
-            state
-                .ml_context
-                .write_tensor(tensor, &data)
-                .map_err(map_rustnn_error)
+            let bits = flat.call_method1("view", ("uint16",))?;
+            write_pod_buffer::<u16>(state, tensor, &bits, element_count)
         }
-        MLOperandDataType::Int32 => {
-            let data: Vec<i32> = flat.call_method0("tolist")?.extract()?;
-            state
-                .ml_context
-                .write_tensor(tensor, &data)
-                .map_err(map_rustnn_error)
-        }
-        MLOperandDataType::Uint32 => {
-            let data: Vec<u32> = flat.call_method0("tolist")?.extract()?;
-            state
-                .ml_context
-                .write_tensor(tensor, &data)
-                .map_err(map_rustnn_error)
-        }
-        MLOperandDataType::Int8 => {
-            let data: Vec<i8> = flat.call_method0("tolist")?.extract()?;
-            state
-                .ml_context
-                .write_tensor(tensor, &data)
-                .map_err(map_rustnn_error)
-        }
-        MLOperandDataType::Uint8 => {
-            let data: Vec<u8> = flat.call_method0("tolist")?.extract()?;
-            state
-                .ml_context
-                .write_tensor(tensor, &data)
-                .map_err(map_rustnn_error)
-        }
-        MLOperandDataType::Int64 => {
-            let data: Vec<i64> = flat.call_method0("tolist")?.extract()?;
-            state
-                .ml_context
-                .write_tensor(tensor, &data)
-                .map_err(map_rustnn_error)
-        }
-        MLOperandDataType::Uint64 => {
-            let data: Vec<u64> = flat.call_method0("tolist")?.extract()?;
-            state
-                .ml_context
-                .write_tensor(tensor, &data)
-                .map_err(map_rustnn_error)
-        }
+        MLOperandDataType::Int32 => write_pod_buffer::<i32>(state, tensor, &flat, element_count),
+        MLOperandDataType::Uint32 => write_pod_buffer::<u32>(state, tensor, &flat, element_count),
+        MLOperandDataType::Int8 => write_pod_buffer::<i8>(state, tensor, &flat, element_count),
+        MLOperandDataType::Uint8 => write_pod_buffer::<u8>(state, tensor, &flat, element_count),
+        MLOperandDataType::Int64 => write_pod_buffer::<i64>(state, tensor, &flat, element_count),
+        MLOperandDataType::Uint64 => write_pod_buffer::<u64>(state, tensor, &flat, element_count),
         MLOperandDataType::Int4 | MLOperandDataType::Uint4 => unreachable!(),
     }
 }

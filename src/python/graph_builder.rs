@@ -17,16 +17,49 @@ use rustnn::graph::{
 use rustnn::operator_enums::MLOperandDataType;
 use rustnn::operator_options::{
     MLArgMinMaxOptions, MLBatchNormalizationOptions, MLClampOptions, MLConv2dOptions,
-    MLConvTranspose2dOptions, MLDimension, MLEluOptions, MLGatherOptions, MLGemmOptions,
-    MLHardSigmoidOptions, MLInstanceNormalizationOptions, MLLayerNormalizationOptions,
-    MLLeakyReluOptions, MLPadOptions, MLPool2dOptions, MLReduceOptions, MLScatterOptions,
-    MLSliceOptions, MLSplitOptions, MLSqueezeOptions, MLTransposeOptions, MLTriangularOptions,
-    MLUnsqueezeOptions,
+    MLConvTranspose2dOptions, MLCumulativeSumOptions, MLDimension, MLEluOptions, MLGatherOptions,
+    MLGemmOptions, MLGruCellOptions, MLGruOptions, MLHardSigmoidOptions,
+    MLInstanceNormalizationOptions, MLLayerNormalizationOptions, MLLeakyReluOptions, MLLinearOptions,
+    MLLstmCellOptions, MLLstmOptions, MLPadOptions, MLPool2dOptions, MLReduceOptions,
+    MLResample2dOptions, MLReverseOptions, MLScatterOptions, MLSliceOptions, MLSplitOptions,
+    MLSqueezeOptions, MLTransposeOptions, MLTriangularOptions, MLUnsqueezeOptions,
 };
-use rustnn::shape_inference::{broadcast_shapes, infer_matmul_shape, validate_reshape};
+use rustnn::shape_inference::{
+    broadcast_shapes, infer_equal_shape, infer_matmul_shape, infer_pool2d_shape,
+    infer_resample2d_shape, infer_round_even_shape, validate_reshape,
+};
 use rustnn::validator::GraphValidator;
 use rustnn::Operation;
 use std::collections::HashMap;
+
+fn infer_gather_nd_shape(input_shape: &[u32], indices_shape: &[u32]) -> Result<Vec<u32>, String> {
+    if indices_shape.is_empty() {
+        return Err("GatherND indices must have rank >= 1".to_string());
+    }
+    let k = indices_shape[indices_shape.len() - 1] as usize;
+    if k > input_shape.len() {
+        return Err(format!(
+            "GatherND indices last dimension {} exceeds input rank {}",
+            k,
+            input_shape.len()
+        ));
+    }
+    let mut shape = indices_shape[..indices_shape.len() - 1].to_vec();
+    shape.extend_from_slice(&input_shape[k..]);
+    Ok(shape)
+}
+
+fn recurrent_num_directions(direction: &str) -> u32 {
+    if direction == "both" { 2 } else { 1 }
+}
+
+fn recurrent_batch_size(input_shape: &[u32]) -> u32 {
+    match input_shape.len() {
+        2 => input_shape[0],
+        3 => input_shape[1],
+        _ => 1,
+    }
+}
 
 /// Builder for constructing WebNN computational graphs
 #[pyclass(name = "MLGraphBuilder")]
@@ -173,6 +206,21 @@ impl PyMLGraphBuilder {
     /// Element-wise division
     fn div(&mut self, a: &PyMLOperand, b: &PyMLOperand) -> PyResult<PyMLOperand> {
         self.binary_op("div", a, b)
+    }
+
+    /// Element-wise power
+    fn pow(&mut self, a: &PyMLOperand, b: &PyMLOperand) -> PyResult<PyMLOperand> {
+        self.binary_op("pow", a, b)
+    }
+
+    /// Element-wise maximum
+    fn max(&mut self, a: &PyMLOperand, b: &PyMLOperand) -> PyResult<PyMLOperand> {
+        self.binary_op("max", a, b)
+    }
+
+    /// Element-wise minimum
+    fn min(&mut self, a: &PyMLOperand, b: &PyMLOperand) -> PyResult<PyMLOperand> {
+        self.binary_op("min", a, b)
     }
 
     /// Matrix multiplication
@@ -671,6 +719,75 @@ impl PyMLGraphBuilder {
         Ok(py_operand)
     }
 
+    /// 2D L2 Pooling operation
+    #[pyo3(signature = (input, window_dimensions=None, strides=None, dilations=None, pads=None, layout=None))]
+    fn l2_pool2d(
+        &mut self,
+        input: &PyMLOperand,
+        window_dimensions: Option<Vec<u32>>,
+        strides: Option<Vec<u32>>,
+        dilations: Option<Vec<u32>>,
+        pads: Option<Vec<u32>>,
+        layout: Option<&str>,
+    ) -> PyResult<PyMLOperand> {
+        let window_dimensions = window_dimensions.unwrap_or_else(|| vec![1, 1]);
+        let strides = strides.unwrap_or_else(|| vec![1, 1]);
+        let dilations = dilations.unwrap_or_else(|| vec![1, 1]);
+        let pads = pads.unwrap_or_else(|| vec![0, 0, 0, 0]);
+
+        let layout_s = match layout.unwrap_or("nchw") {
+            "nchw" => "nchw",
+            "nhwc" => "nhwc",
+            other => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "Invalid layout '{}', must be 'nchw' or 'nhwc'",
+                    other
+                )));
+            }
+        };
+
+        let pool_opts = MLPool2dOptions {
+            label: String::new(),
+            window_dimensions: Some(window_dimensions),
+            padding: pads,
+            strides,
+            dilations,
+            layout: layout_s.to_string(),
+            output_shape_rounding: String::new(),
+            output_sizes: None,
+        };
+
+        let output_shape = infer_pool2d_shape(&input.descriptor.static_or_max_shape(), &pool_opts)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        let output_descriptor = OperandDescriptor {
+            data_type: input.descriptor.data_type,
+            shape: to_dimension_vector(&output_shape),
+            pending_permutation: Vec::new(),
+        };
+
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        self.push_op(Operation::L2Pool2d {
+            input: input.id,
+            options: Some(pool_opts),
+            outputs: vec![output_id],
+        });
+
+        let output_operand = Operand {
+            descriptor: output_descriptor.clone(),
+            kind: OperandKind::Output,
+            name: None,
+        };
+        self.operands.push(output_operand);
+
+        let py_operand = PyMLOperand::new(output_id, output_descriptor, OperandKind::Output, None);
+        self.operand_map.insert(output_id, py_operand.clone());
+
+        Ok(py_operand)
+    }
+
     /// Global Average Pooling operation
     ///
     /// Args:
@@ -1076,6 +1193,39 @@ impl PyMLGraphBuilder {
         self.unary_op("floor", x)
     }
 
+    /// Element-wise round-to-nearest-even (banker's rounding)
+    fn round_even(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
+        let output_shape = infer_round_even_shape(&x.descriptor.static_or_max_shape())
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        let output_descriptor = OperandDescriptor {
+            data_type: x.descriptor.data_type,
+            shape: to_dimension_vector(&output_shape),
+            pending_permutation: Vec::new(),
+        };
+
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        self.push_op(Operation::RoundEven {
+            input: x.id,
+            options: None,
+            outputs: vec![output_id],
+        });
+
+        let output_operand = Operand {
+            descriptor: output_descriptor.clone(),
+            kind: OperandKind::Output,
+            name: None,
+        };
+        self.operands.push(output_operand);
+
+        let py_operand = PyMLOperand::new(output_id, output_descriptor, OperandKind::Output, None);
+        self.operand_map.insert(output_id, py_operand.clone());
+
+        Ok(py_operand)
+    }
+
     /// Element-wise negation
     fn neg(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
         self.unary_op("neg", x)
@@ -1315,6 +1465,43 @@ impl PyMLGraphBuilder {
         self.next_operand_id += 1;
 
         self.push_op(Operation::LesserOrEqual {
+            a: a.id,
+            b: b.id,
+            options: None,
+            outputs: vec![output_id],
+        });
+
+        let output_operand = Operand {
+            descriptor: output_descriptor.clone(),
+            kind: OperandKind::Output,
+            name: None,
+        };
+        self.operands.push(output_operand);
+
+        let py_operand = PyMLOperand::new(output_id, output_descriptor, OperandKind::Output, None);
+        self.operand_map.insert(output_id, py_operand.clone());
+
+        Ok(py_operand)
+    }
+
+    /// Element-wise not-equal comparison
+    fn not_equal(&mut self, a: &PyMLOperand, b: &PyMLOperand) -> PyResult<PyMLOperand> {
+        let output_shape = infer_equal_shape(
+            &a.descriptor.static_or_max_shape(),
+            &b.descriptor.static_or_max_shape(),
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        let output_descriptor = OperandDescriptor {
+            data_type: DataType::Uint8,
+            shape: to_dimension_vector(&output_shape),
+            pending_permutation: Vec::new(),
+        };
+
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        self.push_op(Operation::NotEqual {
             a: a.id,
             b: b.id,
             options: None,
@@ -2142,6 +2329,88 @@ impl PyMLGraphBuilder {
             indices: indices.id,
             batch_dimensions: None,
             options: Some(gather_opts),
+            outputs: vec![output_id],
+        });
+
+        let output_operand = Operand {
+            descriptor: output_descriptor.clone(),
+            kind: OperandKind::Output,
+            name: None,
+        };
+        self.operands.push(output_operand);
+
+        let py_operand = PyMLOperand::new(output_id, output_descriptor, OperandKind::Output, None);
+        self.operand_map.insert(output_id, py_operand.clone());
+
+        Ok(py_operand)
+    }
+
+    /// Gather elements operation (output shape equals indices shape)
+    #[pyo3(signature = (input, indices, axis=0))]
+    fn gather_elements(
+        &mut self,
+        input: &PyMLOperand,
+        indices: &PyMLOperand,
+        axis: u32,
+    ) -> PyResult<PyMLOperand> {
+        let output_shape = indices.descriptor.static_or_max_shape();
+
+        let output_descriptor = OperandDescriptor {
+            data_type: input.descriptor.data_type,
+            shape: to_dimension_vector(&output_shape),
+            pending_permutation: Vec::new(),
+        };
+
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        let gather_opts = MLGatherOptions {
+            label: String::new(),
+            axis,
+        };
+
+        self.push_op(Operation::GatherElements {
+            input: input.id,
+            indices: indices.id,
+            batch_dimensions: None,
+            options: Some(gather_opts),
+            outputs: vec![output_id],
+        });
+
+        let output_operand = Operand {
+            descriptor: output_descriptor.clone(),
+            kind: OperandKind::Output,
+            name: None,
+        };
+        self.operands.push(output_operand);
+
+        let py_operand = PyMLOperand::new(output_id, output_descriptor, OperandKind::Output, None);
+        self.operand_map.insert(output_id, py_operand.clone());
+
+        Ok(py_operand)
+    }
+
+    /// Gather ND operation
+    fn gather_nd(&mut self, input: &PyMLOperand, indices: &PyMLOperand) -> PyResult<PyMLOperand> {
+        let output_shape = infer_gather_nd_shape(
+            &input.descriptor.static_or_max_shape(),
+            &indices.descriptor.static_or_max_shape(),
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))?;
+
+        let output_descriptor = OperandDescriptor {
+            data_type: input.descriptor.data_type,
+            shape: to_dimension_vector(&output_shape),
+            pending_permutation: Vec::new(),
+        };
+
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        self.push_op(Operation::GatherND {
+            input: input.id,
+            indices: indices.id,
+            options: None,
             outputs: vec![output_id],
         });
 
@@ -3417,12 +3686,466 @@ impl PyMLGraphBuilder {
 
         Ok(py_operand)
     }
+
+    /// Linear activation: output = alpha * input + beta
+    #[pyo3(signature = (input, alpha=1.0, beta=0.0))]
+    fn linear(&mut self, input: &PyMLOperand, alpha: f32, beta: f32) -> PyResult<PyMLOperand> {
+        let output_descriptor = input.descriptor.clone();
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        let linear_opts = MLLinearOptions {
+            label: String::new(),
+            alpha: alpha as f64,
+            beta: beta as f64,
+        };
+
+        self.push_op(Operation::Linear {
+            input: input.id,
+            options: Some(linear_opts),
+            outputs: vec![output_id],
+        });
+
+        self.register_output_operand(output_id, output_descriptor)
+    }
+
+    /// Element-wise is-NaN test (uint8 output)
+    fn is_nan(&mut self, input: &PyMLOperand) -> PyResult<PyMLOperand> {
+        let mut output_descriptor = input.descriptor.clone();
+        output_descriptor.data_type = DataType::Uint8;
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        self.push_op(Operation::IsNaN {
+            input: input.id,
+            options: None,
+            outputs: vec![output_id],
+        });
+
+        self.register_output_operand(output_id, output_descriptor)
+    }
+
+    /// Element-wise is-infinite test (uint8 output)
+    fn is_infinite(&mut self, input: &PyMLOperand) -> PyResult<PyMLOperand> {
+        let mut output_descriptor = input.descriptor.clone();
+        output_descriptor.data_type = DataType::Uint8;
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        self.push_op(Operation::IsInfinite {
+            input: input.id,
+            options: None,
+            outputs: vec![output_id],
+        });
+
+        self.register_output_operand(output_id, output_descriptor)
+    }
+
+    /// Returns the rank of the input as a 1D int64 tensor
+    fn shape(&mut self, input: &PyMLOperand) -> PyResult<PyMLOperand> {
+        let rank = input.descriptor.static_or_max_shape().len() as u32;
+        let output_descriptor = OperandDescriptor {
+            data_type: DataType::Int64,
+            shape: to_dimension_vector(&[rank]),
+            pending_permutation: Vec::new(),
+        };
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        self.push_op(Operation::Shape {
+            input: input.id,
+            options: None,
+            outputs: vec![output_id],
+        });
+
+        self.register_output_operand(output_id, output_descriptor)
+    }
+
+    /// Cumulative sum along an axis
+    #[pyo3(signature = (input, axis, exclusive=false, reversed=false))]
+    fn cumulative_sum(
+        &mut self,
+        input: &PyMLOperand,
+        axis: u32,
+        exclusive: bool,
+        reversed: bool,
+    ) -> PyResult<PyMLOperand> {
+        let output_descriptor = input.descriptor.clone();
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        let opts = MLCumulativeSumOptions {
+            label: String::new(),
+            exclusive,
+            reversed,
+        };
+
+        self.push_op(Operation::CumulativeSum {
+            input: input.id,
+            axis,
+            options: Some(opts),
+            outputs: vec![output_id],
+        });
+
+        self.register_output_operand(output_id, output_descriptor)
+    }
+
+    /// Reverse tensor along axes (default: all axes)
+    #[pyo3(signature = (input, axes=None))]
+    fn reverse(&mut self, input: &PyMLOperand, axes: Option<Vec<u32>>) -> PyResult<PyMLOperand> {
+        let output_descriptor = input.descriptor.clone();
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        let reverse_opts = MLReverseOptions {
+            label: String::new(),
+            axes,
+        };
+
+        self.push_op(Operation::Reverse {
+            input: input.id,
+            options: Some(reverse_opts),
+            outputs: vec![output_id],
+        });
+
+        self.register_output_operand(output_id, output_descriptor)
+    }
+
+    /// 2D resampling (resize spatial axes)
+    #[pyo3(signature = (input, sizes=None, scales=None, mode="nearest-neighbor", axes=None))]
+    fn resample2d(
+        &mut self,
+        input: &PyMLOperand,
+        sizes: Option<Vec<u32>>,
+        scales: Option<Vec<f32>>,
+        mode: &str,
+        axes: Option<Vec<u32>>,
+    ) -> PyResult<PyMLOperand> {
+        let input_shape = input.descriptor.shape.clone();
+        let rank = input_shape.len();
+        let axis_pair: [usize; 2] = if let Some(ref a) = axes {
+            if a.len() != 2 {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "resample2d axes must have length 2",
+                ));
+            }
+            [a[0] as usize, a[1] as usize]
+        } else {
+            [rank.saturating_sub(2), rank.saturating_sub(1)]
+        };
+
+        let resample_opts = MLResample2dOptions {
+            label: String::new(),
+            mode: mode.to_string(),
+            scales: scales.unwrap_or_default(),
+            sizes,
+            axes: axes.unwrap_or_else(|| {
+                vec![axis_pair[0] as u32, axis_pair[1] as u32]
+            }),
+        };
+
+        let output_shape = infer_resample2d_shape(
+            &input_shape,
+            axis_pair,
+            resample_opts.sizes.as_deref(),
+            &resample_opts.scales,
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        let output_descriptor = OperandDescriptor {
+            data_type: input.descriptor.data_type,
+            shape: output_shape,
+            pending_permutation: Vec::new(),
+        };
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        self.push_op(Operation::Resample2d {
+            input: input.id,
+            options: Some(resample_opts),
+            outputs: vec![output_id],
+        });
+
+        self.register_output_operand(output_id, output_descriptor)
+    }
+
+    /// GRU recurrent network
+    #[pyo3(signature = (input, weight, recurrent_weight, steps, hidden_size, bias=None, recurrent_bias=None, initial_hidden_state=None, reset_after=false, return_sequence=false, direction="forward", layout="zrn"))]
+    fn gru(
+        &mut self,
+        input: &PyMLOperand,
+        weight: &PyMLOperand,
+        recurrent_weight: &PyMLOperand,
+        steps: u32,
+        hidden_size: u32,
+        bias: Option<&PyMLOperand>,
+        recurrent_bias: Option<&PyMLOperand>,
+        initial_hidden_state: Option<&PyMLOperand>,
+        reset_after: bool,
+        return_sequence: bool,
+        direction: &str,
+        layout: &str,
+    ) -> PyResult<Vec<PyMLOperand>> {
+        let num_dir = recurrent_num_directions(direction);
+        let batch = recurrent_batch_size(&input.descriptor.static_or_max_shape());
+        let dtype = input.descriptor.data_type;
+
+        let mut output_shapes = vec![vec![num_dir, batch, hidden_size]];
+        if return_sequence {
+            output_shapes.push(vec![steps, num_dir, batch, hidden_size]);
+        }
+
+        let output_ids: Vec<u32> = (0..output_shapes.len() as u32)
+            .map(|i| self.next_operand_id + i)
+            .collect();
+        self.next_operand_id += output_shapes.len() as u32;
+
+        let options = MLGruOptions {
+            label: String::new(),
+            bias: bias.map(|o| o.id),
+            recurrent_bias: recurrent_bias.map(|o| o.id),
+            initial_hidden_state: initial_hidden_state.map(|o| o.id),
+            reset_after,
+            return_sequence,
+            direction: direction.to_string(),
+            layout: layout.to_string(),
+            activations: None,
+        };
+
+        self.push_op(Operation::Gru {
+            input: input.id,
+            weight: weight.id,
+            recurrence: recurrent_weight.id,
+            steps,
+            hidden_size,
+            options: Some(options),
+            outputs: output_ids.clone(),
+        });
+
+        self.register_multi_output_operands(&output_ids, dtype, &output_shapes)
+    }
+
+    /// GRU cell (single step)
+    #[pyo3(signature = (input, weight, recurrent_weight, hidden_state, hidden_size, bias=None, recurrent_bias=None, reset_after=false, layout="zrn"))]
+    fn gru_cell(
+        &mut self,
+        input: &PyMLOperand,
+        weight: &PyMLOperand,
+        recurrent_weight: &PyMLOperand,
+        hidden_state: &PyMLOperand,
+        hidden_size: u32,
+        bias: Option<&PyMLOperand>,
+        recurrent_bias: Option<&PyMLOperand>,
+        reset_after: bool,
+        layout: &str,
+    ) -> PyResult<PyMLOperand> {
+        let output_descriptor = if hidden_state.descriptor.static_or_max_shape().is_empty() {
+            let input_shape = input.descriptor.static_or_max_shape();
+            OperandDescriptor {
+                data_type: input.descriptor.data_type,
+                shape: to_dimension_vector(&[input_shape[0], hidden_size]),
+                pending_permutation: Vec::new(),
+            }
+        } else {
+            hidden_state.descriptor.clone()
+        };
+
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        let options = MLGruCellOptions {
+            label: String::new(),
+            bias: bias.map(|o| o.id),
+            recurrent_bias: recurrent_bias.map(|o| o.id),
+            reset_after,
+            layout: layout.to_string(),
+            activations: None,
+        };
+
+        self.push_op(Operation::GruCell {
+            input: input.id,
+            weight: weight.id,
+            recurrence: recurrent_weight.id,
+            hidden_state: hidden_state.id,
+            hidden_size,
+            options: Some(options),
+            outputs: vec![output_id],
+        });
+
+        self.register_output_operand(output_id, output_descriptor)
+    }
+
+    /// LSTM recurrent network
+    #[pyo3(signature = (input, weight, recurrent_weight, steps, hidden_size, bias=None, recurrent_bias=None, peephole_weight=None, initial_hidden_state=None, initial_cell_state=None, return_sequence=false, direction="forward", layout="iofg"))]
+    fn lstm(
+        &mut self,
+        input: &PyMLOperand,
+        weight: &PyMLOperand,
+        recurrent_weight: &PyMLOperand,
+        steps: u32,
+        hidden_size: u32,
+        bias: Option<&PyMLOperand>,
+        recurrent_bias: Option<&PyMLOperand>,
+        peephole_weight: Option<&PyMLOperand>,
+        initial_hidden_state: Option<&PyMLOperand>,
+        initial_cell_state: Option<&PyMLOperand>,
+        return_sequence: bool,
+        direction: &str,
+        layout: &str,
+    ) -> PyResult<Vec<PyMLOperand>> {
+        let num_dir = recurrent_num_directions(direction);
+        let batch = recurrent_batch_size(&input.descriptor.static_or_max_shape());
+        let dtype = input.descriptor.data_type;
+
+        let mut output_shapes = vec![
+            vec![num_dir, batch, hidden_size],
+            vec![num_dir, batch, hidden_size],
+        ];
+        if return_sequence {
+            output_shapes.push(vec![steps, num_dir, batch, hidden_size]);
+        }
+
+        let output_ids: Vec<u32> = (0..output_shapes.len() as u32)
+            .map(|i| self.next_operand_id + i)
+            .collect();
+        self.next_operand_id += output_shapes.len() as u32;
+
+        let options = MLLstmOptions {
+            label: String::new(),
+            bias: bias.map(|o| o.id),
+            recurrent_bias: recurrent_bias.map(|o| o.id),
+            peephole_weight: peephole_weight.map(|o| o.id),
+            initial_hidden_state: initial_hidden_state.map(|o| o.id),
+            initial_cell_state: initial_cell_state.map(|o| o.id),
+            return_sequence,
+            direction: direction.to_string(),
+            layout: layout.to_string(),
+            activations: None,
+        };
+
+        self.push_op(Operation::Lstm {
+            input: input.id,
+            weight: weight.id,
+            recurrence: recurrent_weight.id,
+            steps,
+            hidden_size,
+            options: Some(options),
+            outputs: output_ids.clone(),
+        });
+
+        self.register_multi_output_operands(&output_ids, dtype, &output_shapes)
+    }
+
+    /// LSTM cell (single step)
+    #[pyo3(signature = (input, weight, recurrent_weight, hidden_state, cell_state, hidden_size, bias=None, recurrent_bias=None, peephole_weight=None, layout="iofg"))]
+    fn lstm_cell(
+        &mut self,
+        input: &PyMLOperand,
+        weight: &PyMLOperand,
+        recurrent_weight: &PyMLOperand,
+        hidden_state: &PyMLOperand,
+        cell_state: &PyMLOperand,
+        hidden_size: u32,
+        bias: Option<&PyMLOperand>,
+        recurrent_bias: Option<&PyMLOperand>,
+        peephole_weight: Option<&PyMLOperand>,
+        layout: &str,
+    ) -> PyResult<Vec<PyMLOperand>> {
+        let output_ids = vec![self.next_operand_id, self.next_operand_id + 1];
+        self.next_operand_id += 2;
+
+        let options = MLLstmCellOptions {
+            label: String::new(),
+            bias: bias.map(|o| o.id),
+            recurrent_bias: recurrent_bias.map(|o| o.id),
+            peephole_weight: peephole_weight.map(|o| o.id),
+            layout: layout.to_string(),
+            activations: None,
+        };
+
+        self.push_op(Operation::LstmCell {
+            input: input.id,
+            weight: weight.id,
+            recurrence: recurrent_weight.id,
+            hidden_state: hidden_state.id,
+            cell_state: cell_state.id,
+            hidden_size,
+            options: Some(options),
+            outputs: output_ids.clone(),
+        });
+
+        let shapes = [
+            hidden_state.descriptor.clone(),
+            cell_state.descriptor.clone(),
+        ];
+        let mut py_operands = Vec::with_capacity(2);
+        for (id, descriptor) in output_ids.into_iter().zip(shapes) {
+            py_operands.push(self.register_output_operand(id, descriptor)?);
+        }
+        Ok(py_operands)
+    }
+
+    /// Query the static/max shape of an operand without building the graph
+    fn operand_shape(&self, operand: &PyMLOperand) -> Vec<u32> {
+        operand.descriptor.static_or_max_shape()
+    }
+
+    /// Query the data type of an operand
+    fn operand_data_type(&self, operand: &PyMLOperand) -> String {
+        match operand.descriptor.data_type {
+            DataType::Int4 => "int4".to_string(),
+            DataType::Uint4 => "uint4".to_string(),
+            DataType::Float32 => "float32".to_string(),
+            DataType::Float16 => "float16".to_string(),
+            DataType::Int32 => "int32".to_string(),
+            DataType::Uint32 => "uint32".to_string(),
+            DataType::Int8 => "int8".to_string(),
+            DataType::Uint8 => "uint8".to_string(),
+            DataType::Int64 => "int64".to_string(),
+            DataType::Uint64 => "uint64".to_string(),
+        }
+    }
 }
 
 impl PyMLGraphBuilder {
     #[inline]
     pub(crate) fn push_op(&mut self, op: Operation) {
         self.operations.push(op);
+    }
+
+    fn register_output_operand(
+        &mut self,
+        output_id: u32,
+        output_descriptor: OperandDescriptor,
+    ) -> PyResult<PyMLOperand> {
+        let output_operand = Operand {
+            descriptor: output_descriptor.clone(),
+            kind: OperandKind::Output,
+            name: None,
+        };
+        self.operands.push(output_operand);
+
+        let py_operand = PyMLOperand::new(output_id, output_descriptor, OperandKind::Output, None);
+        self.operand_map.insert(output_id, py_operand.clone());
+        Ok(py_operand)
+    }
+
+    fn register_multi_output_operands(
+        &mut self,
+        output_ids: &[u32],
+        data_type: DataType,
+        output_shapes: &[Vec<u32>],
+    ) -> PyResult<Vec<PyMLOperand>> {
+        let mut py_operands = Vec::with_capacity(output_ids.len());
+        for (id, shape) in output_ids.iter().zip(output_shapes.iter()) {
+            let descriptor = OperandDescriptor {
+                data_type,
+                shape: to_dimension_vector(shape),
+                pending_permutation: Vec::new(),
+            };
+            py_operands.push(self.register_output_operand(*id, descriptor)?);
+        }
+        Ok(py_operands)
     }
 
     /// Create a new graph builder tied to a context (internal).
@@ -3482,6 +4205,24 @@ impl PyMLGraphBuilder {
                 outputs: vec![output_id],
             },
             "div" => Operation::Div {
+                a: a.id,
+                b: b.id,
+                options: None,
+                outputs: vec![output_id],
+            },
+            "pow" => Operation::Pow {
+                a: a.id,
+                b: b.id,
+                options: None,
+                outputs: vec![output_id],
+            },
+            "max" => Operation::Max {
+                a: a.id,
+                b: b.id,
+                options: None,
+                outputs: vec![output_id],
+            },
+            "min" => Operation::Min {
                 a: a.id,
                 b: b.id,
                 options: None,

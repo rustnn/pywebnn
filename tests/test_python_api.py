@@ -101,6 +101,16 @@ def test_binary_operations(builder):
     z_div = builder.div(x, y)
     assert z_div.shape == [2, 3]
 
+    # Test pow, max, min
+    assert builder.pow(x, y).shape == [2, 3]
+    assert builder.max(x, y).shape == [2, 3]
+    assert builder.min(x, y).shape == [2, 3]
+
+    # Test not_equal (uint8 output)
+    ne = builder.not_equal(x, y)
+    assert ne.shape == [2, 3]
+    assert ne.data_type == "uint8"
+
 
 def test_unary_operations(builder):
     """Test unary operations"""
@@ -3536,7 +3546,7 @@ def test_op_support_limits_pooling_operations(context):
     limits = context.op_support_limits()
 
     # Check pooling operations
-    pooling_ops = ["averagePool2d", "maxPool2d"]
+    pooling_ops = ["averagePool2d", "maxPool2d", "l2Pool2d"]
     for op in pooling_ops:
         assert op in limits
         assert "input" in limits[op]
@@ -3608,3 +3618,136 @@ def test_op_support_limits_rank_ranges(context):
         assert rank_range["min"] >= 0
         assert rank_range["max"] >= rank_range["min"]
         assert rank_range["max"] <= 8  # Reasonable upper bound
+
+
+def test_round_even(builder):
+    x = builder.input("x", [2, 3], "float32")
+    y = builder.round_even(x)
+    assert y.shape == [2, 3]
+    assert y.data_type == "float32"
+
+
+def test_linear(builder):
+    x = builder.input("x", [4], "float32")
+    y = builder.linear(x, alpha=2.0, beta=1.0)
+    assert y.shape == [4]
+
+
+def test_is_nan_and_is_infinite(builder):
+    x = builder.input("x", [2, 2], "float32")
+    assert builder.is_nan(x).shape == [2, 2]
+    assert builder.is_nan(x).data_type == "uint8"
+    assert builder.is_infinite(x).shape == [2, 2]
+    assert builder.is_infinite(x).data_type == "uint8"
+
+
+def test_shape_op(builder):
+    x = builder.input("x", [2, 3, 4], "float32")
+    y = builder.shape(x)
+    assert y.shape == [3]
+    assert y.data_type == "int64"
+
+
+def test_cumulative_sum(builder):
+    x = builder.input("x", [2, 3], "float32")
+    y = builder.cumulative_sum(x, axis=1)
+    assert y.shape == [2, 3]
+
+
+def test_reverse(builder):
+    x = builder.input("x", [2, 3], "float32")
+    y = builder.reverse(x)
+    assert y.shape == [2, 3]
+
+
+def test_l2_pool2d(builder):
+    x = builder.input("x", [1, 3, 4, 4], "float32")
+    y = builder.l2_pool2d(x, window_dimensions=[2, 2], strides=[2, 2])
+    assert y.shape == [1, 3, 2, 2]
+
+
+def test_gather_elements(builder):
+    data = builder.input("data", [2, 3], "float32")
+    indices = builder.input("indices", [2, 2], "int32")
+    y = builder.gather_elements(data, indices, axis=1)
+    assert y.shape == [2, 2]
+
+
+def test_gather_nd(builder):
+    data = builder.input("data", [2, 3, 4], "float32")
+    indices = builder.input("indices", [2, 2], "int32")
+    y = builder.gather_nd(data, indices)
+    assert y.shape == [2, 4]
+
+
+def test_resample2d(builder):
+    x = builder.input("x", [1, 3, 4, 4], "float32")
+    y = builder.resample2d(x, sizes=[6, 6])
+    assert y.shape == [1, 3, 6, 6]
+
+
+def test_gru(builder):
+    input_op = builder.input("input", [2, 4], "float32")
+    weight = builder.input("weight", [12, 4], "float32")
+    recurrent = builder.input("recurrent", [12, 4], "float32")
+    outputs = builder.gru(input_op, weight, recurrent, steps=2, hidden_size=4)
+    assert len(outputs) == 1
+    assert outputs[0].shape == [1, 2, 4]
+
+
+def test_gru_return_sequence(builder):
+    input_op = builder.input("input", [2, 3, 4], "float32")
+    weight = builder.input("weight", [12, 4], "float32")
+    recurrent = builder.input("recurrent", [12, 4], "float32")
+    hidden, sequence = builder.gru(
+        input_op, weight, recurrent, steps=3, hidden_size=4, return_sequence=True
+    )
+    assert hidden.shape == [1, 3, 4]
+    assert sequence.shape == [3, 1, 3, 4]
+
+
+def test_gru_cell(builder):
+    input_op = builder.input("input", [2, 4], "float32")
+    weight = builder.input("weight", [12, 4], "float32")
+    recurrent = builder.input("recurrent", [12, 4], "float32")
+    hidden = builder.input("hidden", [2, 4], "float32")
+    y = builder.gru_cell(input_op, weight, recurrent, hidden, hidden_size=4)
+    assert y.shape == [2, 4]
+
+
+def test_lstm(builder):
+    input_op = builder.input("input", [2, 4], "float32")
+    weight = builder.input("weight", [16, 4], "float32")
+    recurrent = builder.input("recurrent", [16, 4], "float32")
+    hidden, cell = builder.lstm(input_op, weight, recurrent, steps=2, hidden_size=4)
+    assert hidden.shape == [1, 2, 4]
+    assert cell.shape == [1, 2, 4]
+
+
+def test_lstm_cell(builder):
+    input_op = builder.input("input", [2, 4], "float32")
+    weight = builder.input("weight", [16, 4], "float32")
+    recurrent = builder.input("recurrent", [16, 4], "float32")
+    hidden = builder.input("hidden", [2, 4], "float32")
+    cell = builder.input("cell", [2, 4], "float32")
+    new_hidden, new_cell = builder.lstm_cell(
+        input_op, weight, recurrent, hidden, cell, hidden_size=4
+    )
+    assert new_hidden.shape == [2, 4]
+    assert new_cell.shape == [2, 4]
+
+
+def test_operand_introspection(builder):
+    x = builder.input("x", [2, 3], "float16")
+    assert builder.operand_shape(x) == [2, 3]
+    assert builder.operand_data_type(x) == "float16"
+
+
+def test_new_ops_build(context):
+    """Smoke test: new ops can be wired into a buildable graph."""
+    builder = context.create_graph_builder()
+    x = builder.input("x", [2, 3], "float32")
+    y = builder.input("y", [2, 3], "float32")
+    out = builder.pow(x, y)
+    graph = builder.build({"out": out})
+    assert graph.operation_count >= 1
