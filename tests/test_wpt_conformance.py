@@ -149,9 +149,9 @@ def pytest_generate_tests(metafunc):
         except (RuntimeError, FileNotFoundError, json.JSONDecodeError) as err:
             if "No webnn_conformance_test" in str(err):
                 continue
-            test_params.append((None, js_path, operation))
-            test_ids.append(f"{operation}::load_error")
-            continue
+            raise RuntimeError(
+                f"Failed to load WPT graph conformance file {js_path.name}: {err}"
+            ) from err
 
         for test_case in loaded.get("tests", []):
             marks = []
@@ -214,8 +214,6 @@ def test_wpt_conformance(context, backend_name, wpt_test_case, wpt_file, operati
     if skip_reason:
         pytest.skip(skip_reason)
 
-    _apply_known_skips(operation, test_name)
-
     try:
         results = execute_graph_resources(context, graph)
     except NotImplementedError as err:
@@ -250,22 +248,6 @@ def test_wpt_conformance(context, backend_name, wpt_test_case, wpt_file, operati
             expected_spec=expected_spec,
             actual=results[output_name],
         )
-
-
-def _apply_known_skips(operation: str, test_name: str) -> None:
-    """Skip tests with known cross-backend architectural limitations."""
-    skip_patterns = [
-        ("instance_normalization", "nhwc"),
-        ("instance_normalization", "all options"),
-        ("layer_normalization", "axes=[0, 2]"),
-        ("layer_normalization", "all options"),
-        ("layer_normalization", "options.scale"),
-        ("batch_normalization", "1d tensor"),
-        ("batch_normalization", "nhwc tensor"),
-    ]
-    for op_pattern, name_pattern in skip_patterns:
-        if operation == op_pattern and name_pattern.lower() in test_name.lower():
-            pytest.skip(f"{operation} architectural limitation (see docs/implementation-status.md)")
 
 
 pytestmark = pytest.mark.wpt
