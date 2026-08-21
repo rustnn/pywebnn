@@ -2486,7 +2486,7 @@ impl PyMLGraphBuilder {
             &input.descriptor.static_or_max_shape(),
             &indices.descriptor.static_or_max_shape(),
         )
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))?;
+        .map_err(pyo3::exceptions::PyValueError::new_err)?;
 
         let output_descriptor = OperandDescriptor {
             data_type: input.descriptor.data_type,

@@ -470,12 +470,12 @@ pub(crate) fn compute_with_dispatch(
         let shape = numpy_shape_u32(&array)?;
         let dtype_str = numpy_dtype_str(input_op.descriptor.data_type)?;
         let desc = ml_tensor_descriptor(&shape, dtype_str, true, true)?;
-        let mut tensor = state
+        let tensor = state
             .ml_context
             .create_tensor(&desc)
             .map_err(map_rustnn_error)?;
 
-        write_numpy_to_ml_tensor(py, state, &mut tensor, &desc, array, &numpy)?;
+        write_numpy_to_ml_tensor(py, state, &tensor, &desc, array, &numpy)?;
         input_tensors.push((input_name, tensor));
     }
 

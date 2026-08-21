@@ -146,10 +146,9 @@ impl PyMLGraph {
             for v in arr {
                 if let Some(n) = v.as_i64() {
                     out.push(n);
-                } else if let Some(n) = v.as_u64() {
-                    out.push(n as i64);
                 } else {
-                    return None;
+                    let n = v.as_u64()?;
+                    out.push(n as i64);
                 }
             }
             Some(out)
