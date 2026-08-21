@@ -7,12 +7,13 @@ use rustnn::graph::{
     get_static_or_max_size, pack_int4, pack_uint4, unpack_int4, unpack_uint4, DataType, GraphInfo,
 };
 use rustnn::mlcontext::{
-    MLContext, MLContextOptions, MLGraph, MLGraphBuilder, MLTensor, MLTensorDescriptor,
+    Backend, MLContext, MLContextOptions, MLGraph, MLGraphBuilder, MLTensor, MLTensorDescriptor,
     MLPowerPreference,
 };
 use rustnn::operator_enums::MLOperandDataType;
 use rustnn::Operation;
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Once;
 
 use super::graph::PyMLGraph;
 use super::operand::parse_data_type;
@@ -24,6 +25,18 @@ pub(crate) struct ContextState {
     /// Keeps graph IR alive for `'static` references held by compiled backends.
     _graph_info_storage: Vec<&'static GraphInfo>,
     pub graphs: Vec<Option<MLGraph<'static>>>,
+}
+
+/// Enable RustNN's existing log output only when the embedding application
+/// explicitly configures `RUST_LOG`. A library must not install a global logger
+/// during normal imports because Python applications may own that logger.
+fn init_rust_logging_if_requested() {
+    static LOGGER_INIT: Once = Once::new();
+    if std::env::var_os("RUST_LOG").is_some() {
+        LOGGER_INIT.call_once(|| {
+            let _ = pretty_env_logger::try_init();
+        });
+    }
 }
 
 pub(crate) fn map_rustnn_error(err: rustnn::error::Error) -> PyErr {
@@ -55,6 +68,7 @@ pub(crate) fn build_context_options(
     power_preference: &str,
     accelerated_requested: bool,
     device_type: &str,
+    backend: &str,
 ) -> PyResult<MLContextOptions> {
     let power_preference = parse_power_preference(power_preference)?;
     let accelerated = match device_type {
@@ -66,7 +80,18 @@ pub(crate) fn build_context_options(
             )));
         }
     };
-    Ok(MLContextOptions::new(power_preference, accelerated))
+    let options = MLContextOptions::new(power_preference, accelerated);
+    match backend {
+        "auto" => Ok(options),
+        "onnx" => Ok(options.with_rustnn_backend_hint(Backend::Onnx)),
+        "trtx" => Ok(options.with_rustnn_backend_hint(Backend::Trtx)),
+        "coreml" => Ok(options.with_rustnn_backend_hint(Backend::Coreml)),
+        "litert" => Ok(options.with_rustnn_backend_hint(Backend::Litert)),
+        "cann" => Ok(options.with_rustnn_backend_hint(Backend::Cann)),
+        other => Err(PyValueError::new_err(format!(
+            "Invalid backend: {other}. Use 'auto', 'onnx', 'trtx', 'coreml', 'litert', or 'cann'"
+        ))),
+    }
 }
 
 pub(crate) fn data_type_to_ml_operand(dt: DataType) -> PyResult<MLOperandDataType> {
@@ -187,6 +212,7 @@ pub(crate) fn ml_tensor_descriptor(
 
 impl ContextState {
     pub fn new(options: MLContextOptions) -> PyResult<Self> {
+        init_rust_logging_if_requested();
         // SAFETY: `MLContext` and backend builders do not expose references tied to caller
         // stack frames; storing in this struct is the intended ownership model for pywebnn.
         let ml_context = MLContext::create(&options).map_err(map_rustnn_error)?;

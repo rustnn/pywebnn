@@ -41,6 +41,27 @@ result = context.compute(
 print(result["output"])
 ```
 
+## TensorRT backend
+
+TensorRT is opt-in. Build an editable installation with RustNN's TensorRT feature,
+then request it when creating the context:
+
+```bash
+maturin develop --features trtx-runtime
+```
+
+```python
+context = webnn.ML().create_context(backend="trtx")
+```
+
+This requires a compatible TensorRT installation and GPU. Use
+`context.backend_info()` to inspect the requested backend and compiled features.
+On Windows, make the matching TensorRT RTX runtime DLLs available through
+`PATH` before starting Python. The DLL version must match the TensorRT headers
+used when building the extension.
+Other opt-in runtime plugins are `litert-runtime` and `cann-runtime`; select them
+with `backend="litert"` and `backend="cann"`, respectively.
+
 ## Links
 
 - GitHub: <https://github.com/rustnn/pywebnn>

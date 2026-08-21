@@ -35,7 +35,8 @@ impl PyML {
     /// Args:
     ///     power_preference: Power preference hint ("default", "high-performance", or "low-power")
     ///     accelerated: Whether to use GPU/NPU acceleration (default: true)
-    ///     device_type: Force specific backend ("auto", "cpu", "gpu", "npu") (default: "auto")
+    ///     device_type: Device preference ("auto", "cpu", "gpu", "npu") (default: "auto")
+    ///     backend: RustNN backend ("auto", "onnx", "trtx", "coreml", "litert", or "cann")
     ///
     /// Returns:
     ///     MLContext: A new context for graph operations
@@ -48,17 +49,19 @@ impl PyML {
     ///     device_type="cpu" requests CPU execution.
     ///     device_type="gpu" requests GPU-accelerated execution.
     ///     device_type="npu" requests NPU execution (platform-dependent, e.g. Apple Neural Engine).
-    #[pyo3(signature = (power_preference="default", accelerated=true, device_type="auto"))]
+    #[pyo3(signature = (power_preference="default", accelerated=true, device_type="auto", backend="auto"))]
     fn create_context(
         &self,
         power_preference: &str,
         accelerated: bool,
         device_type: &str,
+        backend: &str,
     ) -> PyResult<PyMLContext> {
         PyMLContext::new(
             power_preference.to_string(),
             accelerated,
             device_type.to_string(),
+            backend.to_string(),
         )
     }
 }
@@ -70,6 +73,7 @@ pub struct PyMLContext {
     #[allow(dead_code)]
     accelerated_requested: bool,
     device_type: String,
+    backend: String,
     state: Mutex<ContextState>,
 }
 
@@ -672,14 +676,19 @@ impl PyMLContext {
         let execution_compiled = cfg!(feature = "onnx-runtime");
         let coreml_compiled = cfg!(all(target_os = "macos", feature = "coreml-runtime"));
         let trtx_compiled = cfg!(any(feature = "trtx-runtime", feature = "trtx-runtime-mock"));
+        let litert_compiled = cfg!(feature = "litert-runtime");
+        let cann_compiled = cfg!(any(feature = "cann-runtime", feature = "cann-runtime-mock"));
 
         info.set_item("accelerated_available", self.accelerated())?;
         info.set_item("device_type_requested", &self.device_type)?;
+        info.set_item("backend_requested", &self.backend)?;
         info.set_item("compiled_features", {
             let compiled = PyDict::new(py);
             compiled.set_item("execution", execution_compiled)?;
             compiled.set_item("coreml", coreml_compiled)?;
             compiled.set_item("trtx", trtx_compiled)?;
+            compiled.set_item("litert", litert_compiled)?;
+            compiled.set_item("cann", cann_compiled)?;
             compiled
         })?;
 
@@ -688,9 +697,10 @@ impl PyMLContext {
 
     fn __repr__(&self) -> String {
         format!(
-            "MLContext(accelerated={}, power='{}')",
+            "MLContext(accelerated={}, power='{}', backend='{}')",
             self.accelerated(),
-            self.power_preference
+            self.power_preference,
+            self.backend
         )
     }
 }
@@ -700,17 +710,24 @@ impl PyMLContext {
         self.state.lock().unwrap().compile_graph(graph_info)
     }
 
-    fn new(power_preference: String, accelerated_requested: bool, device_type: String) -> PyResult<Self> {
+    fn new(
+        power_preference: String,
+        accelerated_requested: bool,
+        device_type: String,
+        backend: String,
+    ) -> PyResult<Self> {
         let options = build_context_options(
             &power_preference,
             accelerated_requested,
             &device_type,
+            &backend,
         )?;
         let state = ContextState::new(options)?;
         Ok(Self {
             power_preference,
             accelerated_requested,
             device_type,
+            backend,
             state: Mutex::new(state),
         })
     }

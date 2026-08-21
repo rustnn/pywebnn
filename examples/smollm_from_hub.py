@@ -50,9 +50,21 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--backend",
-        choices=["cpu", "gpu", "coreml"],
+        choices=[
+            "auto",
+            "onnx",
+            "trtx",
+            "coreml",
+            "litert",
+            "cann",
+            "cpu",
+            "gpu",
+        ],
         default="cpu",
-        help="Execution backend hint",
+        help=(
+            "RustNN backend: auto, onnx, trtx, coreml, litert, or cann; "
+            "cpu and gpu are legacy device-preference aliases"
+        ),
     )
     parser.add_argument(
         "--force-download",
@@ -229,10 +241,27 @@ def resolve_tokenizer(model_id: str, cache_dir: Path, force: bool) -> Path:
 def create_context(backend: str) -> webnn.MLContext:
     ml = webnn.ML()
     if backend == "cpu":
-        return ml.create_context(power_preference="default", accelerated=False)
+        return ml.create_context(
+            power_preference="default", accelerated=False, device_type="cpu"
+        )
     if backend == "gpu":
-        return ml.create_context(power_preference="high-performance", accelerated=True)
-    return ml.create_context(power_preference="low-power", accelerated=True)
+        return ml.create_context(
+            power_preference="high-performance", accelerated=True, device_type="gpu"
+        )
+    if backend == "trtx":
+        return ml.create_context(
+            power_preference="high-performance",
+            accelerated=True,
+            device_type="gpu",
+            backend="trtx",
+        )
+    if backend == "coreml":
+        return ml.create_context(
+            power_preference="low-power", accelerated=True, backend="coreml"
+        )
+    return ml.create_context(
+        power_preference="default", accelerated=True, backend=backend
+    )
 
 
 def discover_layers(input_names: list[str]) -> list[int]:
@@ -599,6 +628,9 @@ def main() -> None:
     print("Creating context...")
     context = create_context(args.backend)
     print(f"   [OK] Context created (accelerated={context.accelerated})")
+    backend_info = context.backend_info()
+    print(f"   [OK] Backend requested: {backend_info['backend_requested']}")
+    print(f"   [OK] Compiled features: {backend_info['compiled_features']}")
     print()
 
     print("Loading tokenizer...")

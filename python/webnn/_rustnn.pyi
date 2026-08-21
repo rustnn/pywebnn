@@ -12,7 +12,11 @@ class ML:
     def __init__(self) -> None: ...
 
     def create_context(
-        self, device_type: str = "cpu", power_preference: str = "default"
+        self,
+        power_preference: str = "default",
+        accelerated: bool = True,
+        device_type: str = "auto",
+        backend: str = "auto",
     ) -> MLContext: ...
 
 
@@ -22,6 +26,8 @@ class MLContext:
 
     @property
     def accelerated(self) -> bool: ...
+
+    def backend_info(self) -> Dict[str, object]: ...
 
     def create_graph_builder(self) -> MLGraphBuilder: ...
 
