@@ -12,7 +12,7 @@ use rustnn::mlcontext::{
 };
 use rustnn::operator_enums::MLOperandDataType;
 use rustnn::Operation;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use super::graph::PyMLGraph;
 use super::operand::parse_data_type;
@@ -219,8 +219,8 @@ impl ContextState {
     pub fn dispatch_graph(
         &mut self,
         graph_slot: usize,
-        inputs: &HashMap<&str, &MLTensor>,
-        outputs: &HashMap<&str, &MLTensor>,
+        inputs: &BTreeMap<&str, &MLTensor>,
+        outputs: &BTreeMap<&str, &MLTensor>,
     ) -> PyResult<()> {
         let graph = self.graphs.get_mut(graph_slot).and_then(|g| g.as_mut()).ok_or_else(|| {
             PyRuntimeError::new_err(format!("Invalid compiled graph slot: {graph_slot}"))
@@ -451,7 +451,7 @@ pub(crate) fn compute_with_dispatch(
         input_tensors.push((input_name, tensor));
     }
 
-    let input_refs: HashMap<&str, &MLTensor> = input_tensors
+    let input_refs: BTreeMap<&str, &MLTensor> = input_tensors
         .iter()
         .map(|(name, tensor)| (name.as_str(), tensor))
         .collect();
@@ -477,7 +477,7 @@ pub(crate) fn compute_with_dispatch(
         output_tensors.push((output_name, tensor));
     }
 
-    let output_refs: HashMap<&str, &MLTensor> = output_tensors
+    let output_refs: BTreeMap<&str, &MLTensor> = output_tensors
         .iter()
         .map(|(name, tensor)| (name.as_str(), tensor))
         .collect();
@@ -808,12 +808,12 @@ pub(crate) fn dispatch_with_ml_tensors(
         output_tensors.push(bound.inner.tensor.clone());
     }
 
-    let input_refs: HashMap<&str, &MLTensor> = input_names
+    let input_refs: BTreeMap<&str, &MLTensor> = input_names
         .iter()
         .zip(&input_tensors)
         .map(|(name, tensor)| (name.as_str(), tensor))
         .collect();
-    let output_refs: HashMap<&str, &MLTensor> = output_names
+    let output_refs: BTreeMap<&str, &MLTensor> = output_names
         .iter()
         .zip(&output_tensors)
         .map(|(name, tensor)| (name.as_str(), tensor))

@@ -45,5 +45,5 @@ Issues = "https://github.com/rustnn/pywebnn/issues"
 [tool.maturin]
 module-name = "webnn._rustnn"
 python-source = "python"
-# Enable ONNX Runtime and CoreML by default for editable installs.
-features = ["pyo3/extension-module", "onnx-runtime", "coreml-runtime", "dynamic-inputs"]
+# CoreML is opt-in because it requires Apple's Objective-C runtime.
+features = ["pyo3/extension-module", "onnx-runtime", "dynamic-inputs"]

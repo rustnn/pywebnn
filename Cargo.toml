@@ -13,9 +13,9 @@ crate-type = ["cdylib", "rlib"]
 name = "pywebnn"
 
 [features]
-default = ["onnx-runtime", "coreml-runtime", "dynamic-inputs"]
+default = ["onnx-runtime", "dynamic-inputs"]
 onnx-runtime = ["rustnn/onnx-runtime", "ort", "ndarray"]
-coreml-runtime = ["rustnn/coreml-runtime", "objc"]
+coreml-runtime = ["rustnn/coreml-runtime"]
 trtx-runtime = ["rustnn/trtx-runtime"]
 trtx-runtime-mock = ["rustnn/trtx-runtime-mock"]
 dynamic-inputs = ["rustnn/dynamic-inputs"]
@@ -31,8 +31,7 @@ half = "2.4"
 regex = "1.11"
 # Optional runtime dependencies
 ndarray = { version = "0.16", optional = true }
-ort = { version = "=2.0.0-rc.12", optional = true, features = ["ndarray", "half", "load-dynamic"] }
-objc = { version = "0.2", optional = true }
+ort = { version = "=2.0.0-rc.13", optional = true, features = ["ndarray", "half", "load-dynamic"] }
 
 # Make this crate independent from the parent workspace
 [workspace]

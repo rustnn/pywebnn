@@ -17,7 +17,8 @@ pub(crate) struct RustnnTensor {
 /// MLTensor - opaque typed tensor backed by rustnn runtime storage.
 #[pyclass(name = "MLTensor")]
 pub struct PyMLTensor {
-    pub(crate) context: Py<PyMLContext>,
+    /// Retains the owning Python context for the tensor's full lifetime.
+    pub(crate) _context: Py<PyMLContext>,
     pub(crate) inner: RustnnTensor,
     destroyed: Arc<Mutex<bool>>,
 }
@@ -25,7 +26,7 @@ pub struct PyMLTensor {
 impl PyMLTensor {
     pub(crate) fn from_rustnn(context: Py<PyMLContext>, inner: RustnnTensor) -> Self {
         Self {
-            context,
+            _context: context,
             inner,
             destroyed: Arc::new(Mutex::new(false)),
         }
