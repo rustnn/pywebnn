@@ -1,6 +1,6 @@
 [package]
 name = "pywebnn"
-version = "0.5.11"
+version = "0.5.13"
 edition = "2021"
 description = "Python bindings for W3C WebNN specification via rustnn"
 license = "Apache-2.0"

@@ -10,6 +10,20 @@ Python bindings for the W3C WebNN API, powered by `rustnn`.
 pip install pywebnn
 ```
 
+## Development
+
+Install the development dependencies and native extension in editable mode:
+
+```powershell
+python -m pip install --upgrade pip
+python -m pip install maturin numpy tokenizers
+maturin develop
+```
+
+Re-run `maturin develop` after changing Rust code. To build with TensorRT RTX
+support, use `maturin develop --features trtx-runtime` and ensure the matching
+TensorRT runtime DLLs are available on `PATH` before launching Python.
+
 ## Docs
 
 Full documentation is published on GitHub Pages:
