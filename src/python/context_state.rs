@@ -7,8 +7,8 @@ use rustnn::graph::{
     get_static_or_max_size, pack_int4, pack_uint4, unpack_int4, unpack_uint4, DataType, GraphInfo,
 };
 use rustnn::mlcontext::{
-    Backend, MLContext, MLContextOptions, MLGraph, MLGraphBuilder, MLTensor, MLTensorDescriptor,
-    MLPowerPreference,
+    Backend, MLContext, MLContextOptions, MLGraph, MLGraphBuilder, MLPowerPreference, MLTensor,
+    MLTensorDescriptor,
 };
 use rustnn::operator_enums::MLOperandDataType;
 use rustnn::Operation;
@@ -138,9 +138,8 @@ fn extract_int4_logical_values(flat: &Bound<'_, PyAny>) -> PyResult<Vec<i32>> {
     let n: usize = flat.getattr("size")?.extract()?;
     let bytes = flat.call_method0("tobytes")?;
     let raw = bytes.cast::<PyBytes>()?.as_bytes();
-    let slice: &[i8] = bytemuck::try_cast_slice(raw).map_err(|_| {
-        PyValueError::new_err("write_tensor: invalid int4 buffer size")
-    })?;
+    let slice: &[i8] = bytemuck::try_cast_slice(raw)
+        .map_err(|_| PyValueError::new_err("write_tensor: invalid int4 buffer size"))?;
     if slice.len() != n {
         return Err(PyValueError::new_err(format!(
             "Shape mismatch: expected {n} int4 elements, got {}",
@@ -161,9 +160,8 @@ fn extract_uint4_logical_values(flat: &Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
     let n: usize = flat.getattr("size")?.extract()?;
     let bytes = flat.call_method0("tobytes")?;
     let raw = bytes.cast::<PyBytes>()?.as_bytes();
-    let slice: &[u8] = bytemuck::try_cast_slice(raw).map_err(|_| {
-        PyValueError::new_err("write_tensor: invalid uint4 buffer size")
-    })?;
+    let slice: &[u8] = bytemuck::try_cast_slice(raw)
+        .map_err(|_| PyValueError::new_err("write_tensor: invalid uint4 buffer size"))?;
     if slice.len() != n {
         return Err(PyValueError::new_err(format!(
             "Shape mismatch: expected {n} uint4 elements, got {}",
@@ -216,7 +214,8 @@ impl ContextState {
         // SAFETY: `MLContext` and backend builders do not expose references tied to caller
         // stack frames; storing in this struct is the intended ownership model for pywebnn.
         let ml_context = MLContext::create(&options).map_err(map_rustnn_error)?;
-        let ml_context = unsafe { std::mem::transmute::<MLContext<'_>, MLContext<'static>>(ml_context) };
+        let ml_context =
+            unsafe { std::mem::transmute::<MLContext<'_>, MLContext<'static>>(ml_context) };
         Ok(Self {
             ml_context,
             _graph_info_storage: Vec::new(),
@@ -235,8 +234,7 @@ impl ContextState {
         let ml_graph = builder
             .build_graph_info(info.clone())
             .map_err(map_rustnn_error)?;
-        let ml_graph =
-            unsafe { std::mem::transmute::<MLGraph<'_>, MLGraph<'static>>(ml_graph) };
+        let ml_graph = unsafe { std::mem::transmute::<MLGraph<'_>, MLGraph<'static>>(ml_graph) };
         let slot = self.graphs.len();
         self.graphs.push(Some(ml_graph));
         Ok(slot)
@@ -248,9 +246,13 @@ impl ContextState {
         inputs: &BTreeMap<&str, &MLTensor>,
         outputs: &BTreeMap<&str, &MLTensor>,
     ) -> PyResult<()> {
-        let graph = self.graphs.get_mut(graph_slot).and_then(|g| g.as_mut()).ok_or_else(|| {
-            PyRuntimeError::new_err(format!("Invalid compiled graph slot: {graph_slot}"))
-        })?;
+        let graph = self
+            .graphs
+            .get_mut(graph_slot)
+            .and_then(|g| g.as_mut())
+            .ok_or_else(|| {
+                PyRuntimeError::new_err(format!("Invalid compiled graph slot: {graph_slot}"))
+            })?;
         self.ml_context
             .dispatch(graph, inputs, outputs)
             .map_err(map_rustnn_error)
@@ -461,9 +463,9 @@ pub(crate) fn compute_with_dispatch(
             continue;
         }
 
-        let array = inputs.get_item(&input_name)?.ok_or_else(|| {
-            PyValueError::new_err(format!("Missing input: {input_name}"))
-        })?;
+        let array = inputs
+            .get_item(&input_name)?
+            .ok_or_else(|| PyValueError::new_err(format!("Missing input: {input_name}")))?;
 
         let shape = numpy_shape_u32(&array)?;
         let dtype_str = numpy_dtype_str(input_op.descriptor.data_type)?;
@@ -527,7 +529,9 @@ pub(crate) fn compute_with_dispatch(
                     None
                 }
             })
-            .ok_or_else(|| PyRuntimeError::new_err(format!("Output metadata missing for {name}")))?;
+            .ok_or_else(|| {
+                PyRuntimeError::new_err(format!("Output metadata missing for {name}"))
+            })?;
 
         let arr =
             read_ml_tensor_to_numpy(py, state, tensor, output_op.descriptor.data_type, &numpy)?;
@@ -640,7 +644,8 @@ fn read_ml_tensor_to_numpy<'py>(
                 .map(|&b| half::f16::from_bits(b).to_f32())
                 .collect();
             let array = numpy.call_method1("array", (f32s,))?;
-            array.call_method1("astype", ("float16",))?
+            array
+                .call_method1("astype", ("float16",))?
                 .call_method1("reshape", (shape_tuple,))
         }
         DataType::Int32 => {
@@ -713,7 +718,8 @@ fn read_ml_tensor_to_numpy<'py>(
             let logical = unpack_int4(&packed, elements);
             let values: Vec<i8> = logical.into_iter().map(|v| v as i8).collect();
             let array = numpy.call_method1("array", (values,))?;
-            array.call_method1("astype", ("int8",))?
+            array
+                .call_method1("astype", ("int8",))?
                 .call_method1("reshape", (shape_tuple,))
         }
         DataType::Uint4 => {
@@ -727,7 +733,8 @@ fn read_ml_tensor_to_numpy<'py>(
             let logical = unpack_uint4(&packed, elements);
             let values: Vec<i32> = logical.into_iter().map(|v| v as i32).collect();
             let array = numpy.call_method1("array", (values,))?;
-            array.call_method1("astype", ("uint8",))?
+            array
+                .call_method1("astype", ("uint8",))?
                 .call_method1("reshape", (shape_tuple,))
         }
     }

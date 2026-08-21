@@ -61,11 +61,7 @@ impl PyMLTensor {
 
     #[getter]
     fn size(&self) -> usize {
-        self.inner
-            .tensor
-            .shape()
-            .iter()
-            .product::<u64>() as usize
+        self.inner.tensor.shape().iter().product::<u64>() as usize
     }
 
     #[getter]

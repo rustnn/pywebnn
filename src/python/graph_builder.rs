@@ -6,8 +6,8 @@
 #![allow(clippy::useless_conversion)]
 #![allow(clippy::too_many_arguments)]
 
-use super::graph::PyMLGraph;
 use super::context_state::pack_numpy_to_4bit_bytes;
+use super::graph::PyMLGraph;
 use super::operand::{parse_data_type, PyMLOperand};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -19,10 +19,10 @@ use rustnn::operator_options::{
     MLArgMinMaxOptions, MLBatchNormalizationOptions, MLClampOptions, MLConv2dOptions,
     MLConvTranspose2dOptions, MLCumulativeSumOptions, MLDimension, MLEluOptions, MLGatherOptions,
     MLGemmOptions, MLGruCellOptions, MLGruOptions, MLHardSigmoidOptions,
-    MLInstanceNormalizationOptions, MLLayerNormalizationOptions, MLLeakyReluOptions, MLLinearOptions,
-    MLLstmCellOptions, MLLstmOptions, MLPadOptions, MLPool2dOptions, MLReduceOptions,
-    MLResample2dOptions, MLReverseOptions, MLScatterOptions, MLSliceOptions, MLSplitOptions,
-    MLSqueezeOptions, MLTransposeOptions, MLTriangularOptions, MLUnsqueezeOptions,
+    MLInstanceNormalizationOptions, MLLayerNormalizationOptions, MLLeakyReluOptions,
+    MLLinearOptions, MLLstmCellOptions, MLLstmOptions, MLPadOptions, MLPool2dOptions,
+    MLReduceOptions, MLResample2dOptions, MLReverseOptions, MLScatterOptions, MLSliceOptions,
+    MLSplitOptions, MLSqueezeOptions, MLTransposeOptions, MLTriangularOptions, MLUnsqueezeOptions,
 };
 use rustnn::shape_inference::{
     broadcast_shapes, infer_equal_shape, infer_matmul_shape, infer_pool2d_shape,
@@ -50,7 +50,11 @@ fn infer_gather_nd_shape(input_shape: &[u32], indices_shape: &[u32]) -> Result<V
 }
 
 fn recurrent_num_directions(direction: &str) -> u32 {
-    if direction == "both" { 2 } else { 1 }
+    if direction == "both" {
+        2
+    } else {
+        1
+    }
 }
 
 fn recurrent_batch_size(input_shape: &[u32]) -> u32 {
@@ -93,7 +97,10 @@ fn make_pool2d_options(
     }
 }
 
-fn pad_options_value(py: Python<'_>, value: Option<Py<PyAny>>) -> PyResult<Option<serde_json::Value>> {
+fn pad_options_value(
+    py: Python<'_>,
+    value: Option<Py<PyAny>>,
+) -> PyResult<Option<serde_json::Value>> {
     match value {
         None => Ok(None),
         Some(obj) => {
@@ -126,7 +133,11 @@ fn pad_options_value(py: Python<'_>, value: Option<Py<PyAny>>) -> PyResult<Optio
     }
 }
 
-fn clamp_limit_to_json(py: Python<'_>, value: Option<Py<PyAny>>, default: f64) -> PyResult<serde_json::Value> {
+fn clamp_limit_to_json(
+    py: Python<'_>,
+    value: Option<Py<PyAny>>,
+    default: f64,
+) -> PyResult<serde_json::Value> {
     match value {
         None => Ok(serde_json::Value::from(default)),
         Some(obj) => {
@@ -3922,9 +3933,7 @@ impl PyMLGraphBuilder {
             mode: mode.to_string(),
             scales: scales.unwrap_or_default(),
             sizes,
-            axes: axes.unwrap_or_else(|| {
-                vec![axis_pair[0] as u32, axis_pair[1] as u32]
-            }),
+            axes: axes.unwrap_or_else(|| vec![axis_pair[0] as u32, axis_pair[1] as u32]),
         };
 
         let output_shape = infer_resample2d_shape(
