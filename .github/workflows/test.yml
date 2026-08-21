@@ -46,6 +46,12 @@ jobs:
           choco install protoc -y
           protoc --version
 
+      # Some test snapshots in rustnn have a too long path on Windows
+      - name: Use short Cargo home (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: '"CARGO_HOME=C:\c" | Out-File -FilePath $env:GITHUB_ENV -Append'
+
       - name: Update Rust dependencies
         run: cargo update
 
