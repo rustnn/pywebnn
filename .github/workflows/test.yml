@@ -17,6 +17,11 @@ jobs:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
+      # Allow checkout of Rust dependency snapshots whose paths exceed Windows' default limit.
+      - name: Enable Git longpaths (Windows)
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
+
       - uses: actions/checkout@v4
 
       - name: Set up Python
@@ -45,12 +50,6 @@ jobs:
         run: |
           choco install protoc -y
           protoc --version
-
-      # Some test snapshots in rustnn have a too long path on Windows
-      - name: Use short Cargo home (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: '"CARGO_HOME=C:\c" | Out-File -FilePath $env:GITHUB_ENV -Append'
 
       - name: Update Rust dependencies
         run: cargo update
