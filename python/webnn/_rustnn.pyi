@@ -12,7 +12,11 @@ class ML:
     def __init__(self) -> None: ...
 
     def create_context(
-        self, device_type: str = "cpu", power_preference: str = "default"
+        self,
+        power_preference: str = "default",
+        accelerated: bool = True,
+        device_type: str = "auto",
+        backend: str = "auto",
     ) -> MLContext: ...
 
 
@@ -22,6 +26,8 @@ class MLContext:
 
     @property
     def accelerated(self) -> bool: ...
+
+    def backend_info(self) -> Dict[str, object]: ...
 
     def create_graph_builder(self) -> MLGraphBuilder: ...
 
@@ -44,6 +50,10 @@ class MLContext:
     def dispatch(
         self, graph: MLGraph, inputs: Dict[str, MLTensor], outputs: Dict[str, MLTensor]
     ) -> None: ...
+
+    def resize_tensor(self, tensor: MLTensor, shape: List[int]) -> None: ...
+
+    def set_tensor_capacity(self, tensor: MLTensor, max_shape: List[int]) -> None: ...
 
     def read_tensor(self, tensor: MLTensor) -> np.ndarray: ...
 

@@ -6,6 +6,7 @@
 #![allow(clippy::useless_conversion)]
 #![allow(clippy::too_many_arguments)]
 
+use super::context_state::pack_numpy_to_4bit_bytes;
 use super::graph::PyMLGraph;
 use super::operand::{parse_data_type, PyMLOperand};
 use pyo3::prelude::*;
@@ -16,20 +17,174 @@ use rustnn::graph::{
 use rustnn::operator_enums::MLOperandDataType;
 use rustnn::operator_options::{
     MLArgMinMaxOptions, MLBatchNormalizationOptions, MLClampOptions, MLConv2dOptions,
-    MLConvTranspose2dOptions, MLDimension, MLEluOptions, MLGatherOptions, MLGemmOptions,
-    MLHardSigmoidOptions, MLInstanceNormalizationOptions, MLLayerNormalizationOptions,
-    MLLeakyReluOptions, MLPadOptions, MLPool2dOptions, MLReduceOptions, MLScatterOptions,
-    MLSliceOptions, MLSplitOptions, MLSqueezeOptions, MLTransposeOptions, MLTriangularOptions,
-    MLUnsqueezeOptions,
+    MLConvTranspose2dOptions, MLCumulativeSumOptions, MLDimension, MLEluOptions, MLGatherOptions,
+    MLGemmOptions, MLGruCellOptions, MLGruOptions, MLHardSigmoidOptions,
+    MLInstanceNormalizationOptions, MLLayerNormalizationOptions, MLLeakyReluOptions,
+    MLLinearOptions, MLLstmCellOptions, MLLstmOptions, MLPadOptions, MLPool2dOptions,
+    MLReduceOptions, MLResample2dOptions, MLReverseOptions, MLScatterOptions, MLSliceOptions,
+    MLSplitOptions, MLSqueezeOptions, MLTransposeOptions, MLTriangularOptions, MLUnsqueezeOptions,
 };
-use rustnn::shape_inference::{broadcast_shapes, infer_matmul_shape, validate_reshape};
+use rustnn::shape_inference::{
+    broadcast_shapes, infer_equal_shape, infer_matmul_shape, infer_pool2d_shape,
+    infer_resample2d_shape, infer_round_even_shape, validate_reshape,
+};
 use rustnn::validator::GraphValidator;
 use rustnn::Operation;
 use std::collections::HashMap;
 
-/// Builder for constructing WebNN computational graphs
+fn infer_gather_nd_shape(input_shape: &[u32], indices_shape: &[u32]) -> Result<Vec<u32>, String> {
+    if indices_shape.is_empty() {
+        return Err("GatherND indices must have rank >= 1".to_string());
+    }
+    let k = indices_shape[indices_shape.len() - 1] as usize;
+    if k > input_shape.len() {
+        return Err(format!(
+            "GatherND indices last dimension {} exceeds input rank {}",
+            k,
+            input_shape.len()
+        ));
+    }
+    let mut shape = indices_shape[..indices_shape.len() - 1].to_vec();
+    shape.extend_from_slice(&input_shape[k..]);
+    Ok(shape)
+}
+
+fn recurrent_num_directions(direction: &str) -> u32 {
+    if direction == "both" {
+        2
+    } else {
+        1
+    }
+}
+
+fn recurrent_batch_size(input_shape: &[u32]) -> u32 {
+    match input_shape.len() {
+        2 => input_shape[0],
+        3 => input_shape[1],
+        _ => 1,
+    }
+}
+
+fn parse_pool_layout(layout: Option<&str>) -> PyResult<&'static str> {
+    match layout.unwrap_or("nchw") {
+        "nchw" => Ok("nchw"),
+        "nhwc" => Ok("nhwc"),
+        other => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Invalid layout '{}', must be 'nchw' or 'nhwc'",
+            other
+        ))),
+    }
+}
+
+fn make_pool2d_options(
+    window_dimensions: Option<Vec<u32>>,
+    strides: Vec<u32>,
+    dilations: Vec<u32>,
+    pads: Vec<u32>,
+    layout: &str,
+    output_shape_rounding: Option<&str>,
+    output_sizes: Option<Vec<u32>>,
+) -> MLPool2dOptions {
+    MLPool2dOptions {
+        label: String::new(),
+        window_dimensions,
+        padding: pads,
+        strides,
+        dilations,
+        layout: layout.to_string(),
+        output_shape_rounding: output_shape_rounding.unwrap_or("").to_string(),
+        output_sizes,
+    }
+}
+
+fn pad_options_value(
+    py: Python<'_>,
+    value: Option<Py<PyAny>>,
+) -> PyResult<Option<serde_json::Value>> {
+    match value {
+        None => Ok(None),
+        Some(obj) => {
+            let v = obj.bind(py);
+            if v.is_none() {
+                return Ok(Some(serde_json::Value::Null));
+            }
+            if let Ok(f) = v.extract::<f64>() {
+                return Ok(Some(serde_json::Value::from(f)));
+            }
+            if let Ok(i) = v.extract::<i64>() {
+                return Ok(Some(serde_json::Value::from(i)));
+            }
+            if let Ok(u) = v.extract::<u64>() {
+                return Ok(Some(serde_json::Value::from(u)));
+            }
+            if let Ok(s) = v.extract::<String>() {
+                if let Ok(i) = s.parse::<i64>() {
+                    return Ok(Some(serde_json::Value::from(i)));
+                }
+                if let Ok(f) = s.parse::<f64>() {
+                    return Ok(Some(serde_json::Value::from(f)));
+                }
+                return Ok(Some(serde_json::Value::String(s)));
+            }
+            Err(pyo3::exceptions::PyTypeError::new_err(
+                "pad value must be a number or string",
+            ))
+        }
+    }
+}
+
+fn clamp_limit_to_json(
+    py: Python<'_>,
+    value: Option<Py<PyAny>>,
+    default: f64,
+) -> PyResult<serde_json::Value> {
+    match value {
+        None => Ok(serde_json::Value::from(default)),
+        Some(obj) => {
+            let v = obj.bind(py);
+            if let Ok(i) = v.extract::<i64>() {
+                return Ok(serde_json::Value::from(i));
+            }
+            if let Ok(u) = v.extract::<u64>() {
+                return Ok(serde_json::Value::from(u));
+            }
+            if let Ok(f) = v.extract::<f64>() {
+                return Ok(serde_json::Value::from(f));
+            }
+            Err(pyo3::exceptions::PyTypeError::new_err(
+                "clamp limit must be a number",
+            ))
+        }
+    }
+}
+
+fn clamp_limits_ordered(
+    py: Python<'_>,
+    min_value: Option<Py<PyAny>>,
+    max_value: Option<Py<PyAny>>,
+) -> PyResult<(serde_json::Value, serde_json::Value)> {
+    let min_json = clamp_limit_to_json(py, min_value, f64::NEG_INFINITY)?;
+    let max_json = clamp_limit_to_json(py, max_value, f64::INFINITY)?;
+    let ordered = match (min_json.as_i64(), max_json.as_i64()) {
+        (Some(min_i), Some(max_i)) => min_i <= max_i,
+        _ => {
+            let min_f = min_json.as_f64().unwrap_or(f64::NEG_INFINITY);
+            let max_f = max_json.as_f64().unwrap_or(f64::INFINITY);
+            min_f <= max_f
+        }
+    };
+    if !ordered {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "clamp min_value ({}) must be <= max_value ({})",
+            min_json, max_json
+        )));
+    }
+    Ok((min_json, max_json))
+}
 #[pyclass(name = "MLGraphBuilder")]
 pub struct PyMLGraphBuilder {
+    context: Py<super::context::PyMLContext>,
+    built: bool,
     operands: Vec<Operand>,
     operations: Vec<Operation>,
     input_operands: Vec<u32>,
@@ -41,15 +196,10 @@ pub struct PyMLGraphBuilder {
 #[pymethods]
 impl PyMLGraphBuilder {
     #[new]
-    fn new() -> Self {
-        Self {
-            operands: Vec::new(),
-            operations: Vec::new(),
-            input_operands: Vec::new(),
-            next_operand_id: 0,
-            operand_map: HashMap::new(),
-            constant_data_map: HashMap::new(),
-        }
+    fn new() -> PyResult<Self> {
+        Err(pyo3::exceptions::PyRuntimeError::new_err(
+            "MLGraphBuilder must be created via MLContext.create_graph_builder()",
+        ))
     }
 
     /// Create an input operand
@@ -128,8 +278,11 @@ impl PyMLGraphBuilder {
             pending_permutation: Vec::new(),
         };
 
-        // Convert array to bytes
-        let bytes: Vec<u8> = array.call_method0("tobytes")?.extract()?;
+        // Convert array to bytes (nibble-packed for int4/uint4)
+        let bytes = match actual_dtype {
+            DataType::Int4 | DataType::Uint4 => pack_numpy_to_4bit_bytes(array, actual_dtype)?,
+            _ => array.call_method0("tobytes")?.extract()?,
+        };
         let constant_data = ConstantData {
             data: bytes,
             label: None,
@@ -172,6 +325,21 @@ impl PyMLGraphBuilder {
     /// Element-wise division
     fn div(&mut self, a: &PyMLOperand, b: &PyMLOperand) -> PyResult<PyMLOperand> {
         self.binary_op("div", a, b)
+    }
+
+    /// Element-wise power
+    fn pow(&mut self, a: &PyMLOperand, b: &PyMLOperand) -> PyResult<PyMLOperand> {
+        self.binary_op("pow", a, b)
+    }
+
+    /// Element-wise maximum
+    fn max(&mut self, a: &PyMLOperand, b: &PyMLOperand) -> PyResult<PyMLOperand> {
+        self.binary_op("max", a, b)
+    }
+
+    /// Element-wise minimum
+    fn min(&mut self, a: &PyMLOperand, b: &PyMLOperand) -> PyResult<PyMLOperand> {
+        self.binary_op("min", a, b)
     }
 
     /// Matrix multiplication
@@ -514,7 +682,7 @@ impl PyMLGraphBuilder {
     ///
     /// Returns:
     ///     MLOperand: The output operand
-    #[pyo3(signature = (input, window_dimensions=None, strides=None, dilations=None, pads=None, layout=None))]
+    #[pyo3(signature = (input, window_dimensions=None, strides=None, dilations=None, pads=None, layout=None, output_shape_rounding=None, output_sizes=None))]
     fn average_pool2d(
         &mut self,
         input: &PyMLOperand,
@@ -523,36 +691,26 @@ impl PyMLGraphBuilder {
         dilations: Option<Vec<u32>>,
         pads: Option<Vec<u32>>,
         layout: Option<&str>,
+        output_shape_rounding: Option<&str>,
+        output_sizes: Option<Vec<u32>>,
     ) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_pool2d_shape;
 
-        // Default values matching WebNN spec
-        let window_dimensions = window_dimensions.unwrap_or_else(|| vec![1, 1]);
+        // Default values matching WebNN spec (window_dimensions omitted => full spatial size)
         let strides = strides.unwrap_or_else(|| vec![1, 1]);
         let dilations = dilations.unwrap_or_else(|| vec![1, 1]);
         let pads = pads.unwrap_or_else(|| vec![0, 0, 0, 0]);
+        let layout_s = parse_pool_layout(layout)?;
 
-        let layout_s = match layout.unwrap_or("nchw") {
-            "nchw" => "nchw",
-            "nhwc" => "nhwc",
-            other => {
-                return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                    "Invalid layout '{}', must be 'nchw' or 'nhwc'",
-                    other
-                )));
-            }
-        };
-
-        let pool_opts = MLPool2dOptions {
-            label: String::new(),
-            window_dimensions: Some(window_dimensions),
-            padding: pads,
+        let pool_opts = make_pool2d_options(
+            window_dimensions,
             strides,
             dilations,
-            layout: layout_s.to_string(),
-            output_shape_rounding: String::new(),
-            output_sizes: None,
-        };
+            pads,
+            layout_s,
+            output_shape_rounding,
+            output_sizes,
+        );
 
         // Infer output shape
         let output_shape = infer_pool2d_shape(&input.descriptor.static_or_max_shape(), &pool_opts)
@@ -598,7 +756,7 @@ impl PyMLGraphBuilder {
     ///
     /// Returns:
     ///     MLOperand: The output operand
-    #[pyo3(signature = (input, window_dimensions=None, strides=None, dilations=None, pads=None, layout=None))]
+    #[pyo3(signature = (input, window_dimensions=None, strides=None, dilations=None, pads=None, layout=None, output_shape_rounding=None, output_sizes=None))]
     fn max_pool2d(
         &mut self,
         input: &PyMLOperand,
@@ -607,36 +765,26 @@ impl PyMLGraphBuilder {
         dilations: Option<Vec<u32>>,
         pads: Option<Vec<u32>>,
         layout: Option<&str>,
+        output_shape_rounding: Option<&str>,
+        output_sizes: Option<Vec<u32>>,
     ) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_pool2d_shape;
 
-        // Default values matching WebNN spec
-        let window_dimensions = window_dimensions.unwrap_or_else(|| vec![1, 1]);
+        // Default values matching WebNN spec (window_dimensions omitted => full spatial size)
         let strides = strides.unwrap_or_else(|| vec![1, 1]);
         let dilations = dilations.unwrap_or_else(|| vec![1, 1]);
         let pads = pads.unwrap_or_else(|| vec![0, 0, 0, 0]);
+        let layout_s = parse_pool_layout(layout)?;
 
-        let layout_s = match layout.unwrap_or("nchw") {
-            "nchw" => "nchw",
-            "nhwc" => "nhwc",
-            other => {
-                return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                    "Invalid layout '{}', must be 'nchw' or 'nhwc'",
-                    other
-                )));
-            }
-        };
-
-        let pool_opts = MLPool2dOptions {
-            label: String::new(),
-            window_dimensions: Some(window_dimensions),
-            padding: pads,
+        let pool_opts = make_pool2d_options(
+            window_dimensions,
             strides,
             dilations,
-            layout: layout_s.to_string(),
-            output_shape_rounding: String::new(),
-            output_sizes: None,
-        };
+            pads,
+            layout_s,
+            output_shape_rounding,
+            output_sizes,
+        );
 
         // Infer output shape
         let output_shape = infer_pool2d_shape(&input.descriptor.static_or_max_shape(), &pool_opts)
@@ -652,6 +800,65 @@ impl PyMLGraphBuilder {
         self.next_operand_id += 1;
 
         self.push_op(Operation::MaxPool2d {
+            input: input.id,
+            options: Some(pool_opts),
+            outputs: vec![output_id],
+        });
+
+        let output_operand = Operand {
+            descriptor: output_descriptor.clone(),
+            kind: OperandKind::Output,
+            name: None,
+        };
+        self.operands.push(output_operand);
+
+        let py_operand = PyMLOperand::new(output_id, output_descriptor, OperandKind::Output, None);
+        self.operand_map.insert(output_id, py_operand.clone());
+
+        Ok(py_operand)
+    }
+
+    /// 2D L2 Pooling operation
+    #[pyo3(signature = (input, window_dimensions=None, strides=None, dilations=None, pads=None, layout=None, output_shape_rounding=None, output_sizes=None))]
+    fn l2_pool2d(
+        &mut self,
+        input: &PyMLOperand,
+        window_dimensions: Option<Vec<u32>>,
+        strides: Option<Vec<u32>>,
+        dilations: Option<Vec<u32>>,
+        pads: Option<Vec<u32>>,
+        layout: Option<&str>,
+        output_shape_rounding: Option<&str>,
+        output_sizes: Option<Vec<u32>>,
+    ) -> PyResult<PyMLOperand> {
+        let strides = strides.unwrap_or_else(|| vec![1, 1]);
+        let dilations = dilations.unwrap_or_else(|| vec![1, 1]);
+        let pads = pads.unwrap_or_else(|| vec![0, 0, 0, 0]);
+        let layout_s = parse_pool_layout(layout)?;
+
+        let pool_opts = make_pool2d_options(
+            window_dimensions,
+            strides,
+            dilations,
+            pads,
+            layout_s,
+            output_shape_rounding,
+            output_sizes,
+        );
+
+        let output_shape = infer_pool2d_shape(&input.descriptor.static_or_max_shape(), &pool_opts)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        let output_descriptor = OperandDescriptor {
+            data_type: input.descriptor.data_type,
+            shape: to_dimension_vector(&output_shape),
+            pending_permutation: Vec::new(),
+        };
+
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        self.push_op(Operation::L2Pool2d {
             input: input.id,
             options: Some(pool_opts),
             outputs: vec![output_id],
@@ -963,7 +1170,8 @@ impl PyMLGraphBuilder {
                 Some(rank) if rank > 0 && rank <= input_rank => ((input_rank - rank)..input_rank)
                     .map(|i| i as u32)
                     .collect(),
-                _ => vec![(input_rank.saturating_sub(1)) as u32],
+                // WebNN default: normalize over axes 1..rank-1 (all non-batch dimensions).
+                _ => (1..input_rank as u32).collect(),
             }
         };
 
@@ -1073,6 +1281,39 @@ impl PyMLGraphBuilder {
     /// Element-wise floor (round down)
     fn floor(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
         self.unary_op("floor", x)
+    }
+
+    /// Element-wise round-to-nearest-even (banker's rounding)
+    fn round_even(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
+        let output_shape = infer_round_even_shape(&x.descriptor.static_or_max_shape())
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        let output_descriptor = OperandDescriptor {
+            data_type: x.descriptor.data_type,
+            shape: to_dimension_vector(&output_shape),
+            pending_permutation: Vec::new(),
+        };
+
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        self.push_op(Operation::RoundEven {
+            input: x.id,
+            options: None,
+            outputs: vec![output_id],
+        });
+
+        let output_operand = Operand {
+            descriptor: output_descriptor.clone(),
+            kind: OperandKind::Output,
+            name: None,
+        };
+        self.operands.push(output_operand);
+
+        let py_operand = PyMLOperand::new(output_id, output_descriptor, OperandKind::Output, None);
+        self.operand_map.insert(output_id, py_operand.clone());
+
+        Ok(py_operand)
     }
 
     /// Element-wise negation
@@ -1333,6 +1574,43 @@ impl PyMLGraphBuilder {
         Ok(py_operand)
     }
 
+    /// Element-wise not-equal comparison
+    fn not_equal(&mut self, a: &PyMLOperand, b: &PyMLOperand) -> PyResult<PyMLOperand> {
+        let output_shape = infer_equal_shape(
+            &a.descriptor.static_or_max_shape(),
+            &b.descriptor.static_or_max_shape(),
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        let output_descriptor = OperandDescriptor {
+            data_type: DataType::Uint8,
+            shape: to_dimension_vector(&output_shape),
+            pending_permutation: Vec::new(),
+        };
+
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        self.push_op(Operation::NotEqual {
+            a: a.id,
+            b: b.id,
+            options: None,
+            outputs: vec![output_id],
+        });
+
+        let output_operand = Operand {
+            descriptor: output_descriptor.clone(),
+            kind: OperandKind::Output,
+            name: None,
+        };
+        self.operands.push(output_operand);
+
+        let py_operand = PyMLOperand::new(output_id, output_descriptor, OperandKind::Output, None);
+        self.operand_map.insert(output_id, py_operand.clone());
+
+        Ok(py_operand)
+    }
+
     /// Element-wise logical NOT
     fn logical_not(&mut self, x: &PyMLOperand) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_logical_not_shape;
@@ -1499,9 +1777,9 @@ impl PyMLGraphBuilder {
         let output_shape = infer_dequantize_linear_shape(&input.descriptor.static_or_max_shape())
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
-        // Output is always float32 for dequantization
+        // WebNN: output dtype matches scale (float16 or float32).
         let output_descriptor = OperandDescriptor {
-            data_type: DataType::Float32,
+            data_type: scale.descriptor.data_type,
             shape: to_dimension_vector(&output_shape),
             pending_permutation: Vec::new(),
         };
@@ -1985,12 +2263,27 @@ impl PyMLGraphBuilder {
         }
         // 0D no-op: output shape is same as input
 
+        let strides_vec: Vec<u32> = strides
+            .as_ref()
+            .map(|s| s.iter().map(|&x| x as u32).collect())
+            .unwrap_or_default();
+        let strides_arg = if strides_vec.is_empty() {
+            None
+        } else {
+            Some(strides_vec.as_slice())
+        };
+
         // Infer output shape (for 0D with empty starts/sizes, use input shape; else infer)
         let output_shape = if input_rank == 0 && starts.is_empty() {
             input.descriptor.static_or_max_shape()
         } else {
-            infer_slice_shape(&input.descriptor.static_or_max_shape(), &starts, &sizes)
-                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?
+            infer_slice_shape(
+                &input.descriptor.static_or_max_shape(),
+                &starts,
+                &sizes,
+                strides_arg,
+            )
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?
         };
 
         let output_descriptor = OperandDescriptor {
@@ -2001,10 +2294,6 @@ impl PyMLGraphBuilder {
 
         let output_id = self.next_operand_id;
         self.next_operand_id += 1;
-
-        let strides_vec: Vec<u32> = strides
-            .map(|s| s.iter().map(|&x| x as u32).collect())
-            .unwrap_or_default();
 
         let sizes_dims: Vec<MLDimension> = sizes.iter().copied().map(MLDimension::Static).collect();
 
@@ -2130,6 +2419,88 @@ impl PyMLGraphBuilder {
             indices: indices.id,
             batch_dimensions: None,
             options: Some(gather_opts),
+            outputs: vec![output_id],
+        });
+
+        let output_operand = Operand {
+            descriptor: output_descriptor.clone(),
+            kind: OperandKind::Output,
+            name: None,
+        };
+        self.operands.push(output_operand);
+
+        let py_operand = PyMLOperand::new(output_id, output_descriptor, OperandKind::Output, None);
+        self.operand_map.insert(output_id, py_operand.clone());
+
+        Ok(py_operand)
+    }
+
+    /// Gather elements operation (output shape equals indices shape)
+    #[pyo3(signature = (input, indices, axis=0))]
+    fn gather_elements(
+        &mut self,
+        input: &PyMLOperand,
+        indices: &PyMLOperand,
+        axis: u32,
+    ) -> PyResult<PyMLOperand> {
+        let output_shape = indices.descriptor.static_or_max_shape();
+
+        let output_descriptor = OperandDescriptor {
+            data_type: input.descriptor.data_type,
+            shape: to_dimension_vector(&output_shape),
+            pending_permutation: Vec::new(),
+        };
+
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        let gather_opts = MLGatherOptions {
+            label: String::new(),
+            axis,
+        };
+
+        self.push_op(Operation::GatherElements {
+            input: input.id,
+            indices: indices.id,
+            batch_dimensions: None,
+            options: Some(gather_opts),
+            outputs: vec![output_id],
+        });
+
+        let output_operand = Operand {
+            descriptor: output_descriptor.clone(),
+            kind: OperandKind::Output,
+            name: None,
+        };
+        self.operands.push(output_operand);
+
+        let py_operand = PyMLOperand::new(output_id, output_descriptor, OperandKind::Output, None);
+        self.operand_map.insert(output_id, py_operand.clone());
+
+        Ok(py_operand)
+    }
+
+    /// Gather ND operation
+    fn gather_nd(&mut self, input: &PyMLOperand, indices: &PyMLOperand) -> PyResult<PyMLOperand> {
+        let output_shape = infer_gather_nd_shape(
+            &input.descriptor.static_or_max_shape(),
+            &indices.descriptor.static_or_max_shape(),
+        )
+        .map_err(pyo3::exceptions::PyValueError::new_err)?;
+
+        let output_descriptor = OperandDescriptor {
+            data_type: input.descriptor.data_type,
+            shape: to_dimension_vector(&output_shape),
+            pending_permutation: Vec::new(),
+        };
+
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        self.push_op(Operation::GatherND {
+            input: input.id,
+            indices: indices.id,
+            options: None,
             outputs: vec![output_id],
         });
 
@@ -2305,10 +2676,11 @@ impl PyMLGraphBuilder {
     #[pyo3(signature = (input, padding, mode=None, value=None))]
     fn pad(
         &mut self,
+        py: Python<'_>,
         input: &PyMLOperand,
         padding: Vec<u32>,
         mode: Option<&str>,
-        value: Option<f32>,
+        value: Option<Py<PyAny>>,
     ) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_pad_shape;
 
@@ -2341,7 +2713,7 @@ impl PyMLGraphBuilder {
         let pad_opts = MLPadOptions {
             label: String::new(),
             mode: mode_str.to_string(),
-            value: value.map(serde_json::Value::from),
+            value: pad_options_value(py, value)?,
         };
 
         self.push_op(Operation::Pad {
@@ -2715,7 +3087,15 @@ impl PyMLGraphBuilder {
     ///
     /// Returns:
     ///     MLGraph: The compiled graph
-    fn build(&mut self, outputs: &Bound<'_, PyDict>) -> PyResult<PyMLGraph> {
+    fn build(&mut self, py: Python<'_>, outputs: &Bound<'_, PyDict>) -> PyResult<PyMLGraph> {
+        // Operation results are tagged Output during construction; demote before binding graph outputs.
+        for operand in &mut self.operands {
+            if matches!(operand.kind, OperandKind::Output) {
+                operand.kind = OperandKind::Intermediate;
+                operand.name = None;
+            }
+        }
+
         let mut output_operands = Vec::new();
 
         // Mark outputs and collect output IDs
@@ -2748,7 +3128,25 @@ impl PyMLGraphBuilder {
             pyo3::exceptions::PyValueError::new_err(format!("Graph validation failed: {}", e))
         })?;
 
-        Ok(PyMLGraph::new(graph_info))
+        if self.built {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "MLGraphBuilder.build() was already called",
+            ));
+        }
+        self.built = true;
+
+        let graph_slot = {
+            self.context
+                .bind(py)
+                .borrow()
+                .compile_graph(graph_info.clone())?
+        };
+
+        Ok(PyMLGraph::new_compiled(
+            graph_info,
+            self.context.clone_ref(py),
+            graph_slot,
+        ))
     }
 
     /// Scatter elements operation
@@ -3042,39 +3440,11 @@ impl PyMLGraphBuilder {
     ///     MLOperand: Output operand
     #[pyo3(signature = (input, alpha=0.166_666_67, beta=0.5))]
     fn hard_swish(&mut self, input: &PyMLOperand, alpha: f32, beta: f32) -> PyResult<PyMLOperand> {
-        use rustnn::shape_inference::infer_hardswish_shape;
-
-        let _ = (alpha, beta);
-
-        let output_shape = infer_hardswish_shape(&input.descriptor.static_or_max_shape())
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-
-        let output_descriptor = OperandDescriptor {
-            data_type: input.descriptor.data_type,
-            shape: to_dimension_vector(&output_shape),
-            pending_permutation: Vec::new(),
-        };
-
-        let output_id = self.next_operand_id;
-        self.next_operand_id += 1;
-
-        self.push_op(Operation::HardSwish {
-            input: input.id,
-            options: None,
-            outputs: vec![output_id],
-        });
-
-        let output_operand = Operand {
-            descriptor: output_descriptor.clone(),
-            kind: OperandKind::Output,
-            name: None,
-        };
-        self.operands.push(output_operand);
-
-        let py_operand = PyMLOperand::new(output_id, output_descriptor, OperandKind::Output, None);
-        self.operand_map.insert(output_id, py_operand.clone());
-
-        Ok(py_operand)
+        // Compose hardSwish so alpha and beta are preserved.  This also avoids
+        // depending on the dedicated ONNX HardSwish operator (introduced after
+        // opset 13), while remaining equivalent to the WebNN operation.
+        let hard_sigmoid = self.hard_sigmoid(input, alpha, beta)?;
+        self.mul(input, &hard_sigmoid)
     }
 
     /// softplus activation operation
@@ -3181,22 +3551,17 @@ impl PyMLGraphBuilder {
     /// Example:
     ///     # ReLU6: clamp(x, 0, 6)
     ///     relu6 = builder.clamp(x, min_value=0.0, max_value=6.0)
-    #[pyo3(signature = (input, min_value=f32::NEG_INFINITY, max_value=f32::INFINITY))]
+    #[pyo3(signature = (input, min_value=None, max_value=None))]
     fn clamp(
         &mut self,
+        py: Python<'_>,
         input: &PyMLOperand,
-        min_value: f32,
-        max_value: f32,
+        min_value: Option<Py<PyAny>>,
+        max_value: Option<Py<PyAny>>,
     ) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::infer_clamp_shape;
 
-        // Validate min <= max
-        if min_value > max_value {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "clamp min_value ({}) must be <= max_value ({})",
-                min_value, max_value
-            )));
-        }
+        let (min_json, max_json) = clamp_limits_ordered(py, min_value, max_value)?;
 
         let output_shape = infer_clamp_shape(&input.descriptor.static_or_max_shape());
 
@@ -3211,8 +3576,8 @@ impl PyMLGraphBuilder {
 
         let clamp_opts = MLClampOptions {
             label: String::new(),
-            min_value: Some(serde_json::Value::from(f64::from(min_value))),
-            max_value: Some(serde_json::Value::from(f64::from(max_value))),
+            min_value: Some(min_json),
+            max_value: Some(max_json),
         };
 
         self.push_op(Operation::Clamp {
@@ -3387,6 +3752,427 @@ impl PyMLGraphBuilder {
 
         Ok(py_operand)
     }
+
+    /// Linear activation: output = alpha * input + beta
+    #[pyo3(signature = (input, alpha=1.0, beta=0.0))]
+    fn linear(&mut self, input: &PyMLOperand, alpha: f32, beta: f32) -> PyResult<PyMLOperand> {
+        let output_descriptor = input.descriptor.clone();
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        let linear_opts = MLLinearOptions {
+            label: String::new(),
+            alpha: alpha as f64,
+            beta: beta as f64,
+        };
+
+        self.push_op(Operation::Linear {
+            input: input.id,
+            options: Some(linear_opts),
+            outputs: vec![output_id],
+        });
+
+        self.register_output_operand(output_id, output_descriptor)
+    }
+
+    /// Element-wise is-NaN test (uint8 output)
+    fn is_nan(&mut self, input: &PyMLOperand) -> PyResult<PyMLOperand> {
+        let mut output_descriptor = input.descriptor.clone();
+        output_descriptor.data_type = DataType::Uint8;
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        self.push_op(Operation::IsNaN {
+            input: input.id,
+            options: None,
+            outputs: vec![output_id],
+        });
+
+        self.register_output_operand(output_id, output_descriptor)
+    }
+
+    /// Element-wise is-infinite test (uint8 output)
+    fn is_infinite(&mut self, input: &PyMLOperand) -> PyResult<PyMLOperand> {
+        let mut output_descriptor = input.descriptor.clone();
+        output_descriptor.data_type = DataType::Uint8;
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        self.push_op(Operation::IsInfinite {
+            input: input.id,
+            options: None,
+            outputs: vec![output_id],
+        });
+
+        self.register_output_operand(output_id, output_descriptor)
+    }
+
+    /// Returns the rank of the input as a 1D int64 tensor
+    fn shape(&mut self, input: &PyMLOperand) -> PyResult<PyMLOperand> {
+        let rank = input.descriptor.static_or_max_shape().len() as u32;
+        let output_descriptor = OperandDescriptor {
+            data_type: DataType::Int64,
+            shape: to_dimension_vector(&[rank]),
+            pending_permutation: Vec::new(),
+        };
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        self.push_op(Operation::Shape {
+            input: input.id,
+            options: None,
+            outputs: vec![output_id],
+        });
+
+        self.register_output_operand(output_id, output_descriptor)
+    }
+
+    /// Cumulative sum along an axis
+    #[pyo3(signature = (input, axis, exclusive=false, reversed=false))]
+    fn cumulative_sum(
+        &mut self,
+        input: &PyMLOperand,
+        axis: u32,
+        exclusive: bool,
+        reversed: bool,
+    ) -> PyResult<PyMLOperand> {
+        let output_descriptor = input.descriptor.clone();
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        let opts = MLCumulativeSumOptions {
+            label: String::new(),
+            exclusive,
+            reversed,
+        };
+
+        self.push_op(Operation::CumulativeSum {
+            input: input.id,
+            axis,
+            options: Some(opts),
+            outputs: vec![output_id],
+        });
+
+        self.register_output_operand(output_id, output_descriptor)
+    }
+
+    /// Reverse tensor along axes (default: all axes)
+    #[pyo3(signature = (input, axes=None))]
+    fn reverse(&mut self, input: &PyMLOperand, axes: Option<Vec<u32>>) -> PyResult<PyMLOperand> {
+        let output_descriptor = input.descriptor.clone();
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        let reverse_opts = MLReverseOptions {
+            label: String::new(),
+            axes,
+        };
+
+        self.push_op(Operation::Reverse {
+            input: input.id,
+            options: Some(reverse_opts),
+            outputs: vec![output_id],
+        });
+
+        self.register_output_operand(output_id, output_descriptor)
+    }
+
+    /// 2D resampling (resize spatial axes)
+    #[pyo3(signature = (input, sizes=None, scales=None, mode="nearest-neighbor", axes=None))]
+    fn resample2d(
+        &mut self,
+        input: &PyMLOperand,
+        sizes: Option<Vec<u32>>,
+        scales: Option<Vec<f32>>,
+        mode: &str,
+        axes: Option<Vec<u32>>,
+    ) -> PyResult<PyMLOperand> {
+        let input_shape = input.descriptor.shape.clone();
+        let rank = input_shape.len();
+        let axis_pair: [usize; 2] = if let Some(ref a) = axes {
+            if a.len() != 2 {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "resample2d axes must have length 2",
+                ));
+            }
+            [a[0] as usize, a[1] as usize]
+        } else {
+            [rank.saturating_sub(2), rank.saturating_sub(1)]
+        };
+
+        let resample_opts = MLResample2dOptions {
+            label: String::new(),
+            mode: mode.to_string(),
+            scales: scales.unwrap_or_default(),
+            sizes,
+            axes: axes.unwrap_or_else(|| vec![axis_pair[0] as u32, axis_pair[1] as u32]),
+        };
+
+        let output_shape = infer_resample2d_shape(
+            &input_shape,
+            axis_pair,
+            resample_opts.sizes.as_deref(),
+            &resample_opts.scales,
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        let output_descriptor = OperandDescriptor {
+            data_type: input.descriptor.data_type,
+            shape: output_shape,
+            pending_permutation: Vec::new(),
+        };
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        self.push_op(Operation::Resample2d {
+            input: input.id,
+            options: Some(resample_opts),
+            outputs: vec![output_id],
+        });
+
+        self.register_output_operand(output_id, output_descriptor)
+    }
+
+    /// GRU recurrent network
+    #[pyo3(signature = (input, weight, recurrent_weight, steps, hidden_size, bias=None, recurrent_bias=None, initial_hidden_state=None, reset_after=false, return_sequence=false, direction="forward", layout="zrn", activations=None))]
+    fn gru(
+        &mut self,
+        input: &PyMLOperand,
+        weight: &PyMLOperand,
+        recurrent_weight: &PyMLOperand,
+        steps: u32,
+        hidden_size: u32,
+        bias: Option<&PyMLOperand>,
+        recurrent_bias: Option<&PyMLOperand>,
+        initial_hidden_state: Option<&PyMLOperand>,
+        reset_after: bool,
+        return_sequence: bool,
+        direction: &str,
+        layout: &str,
+        activations: Option<Vec<String>>,
+    ) -> PyResult<Vec<PyMLOperand>> {
+        let num_dir = recurrent_num_directions(direction);
+        let batch = recurrent_batch_size(&input.descriptor.static_or_max_shape());
+        let dtype = input.descriptor.data_type;
+
+        let mut output_shapes = vec![vec![num_dir, batch, hidden_size]];
+        if return_sequence {
+            output_shapes.push(vec![steps, num_dir, batch, hidden_size]);
+        }
+
+        let output_ids: Vec<u32> = (0..output_shapes.len() as u32)
+            .map(|i| self.next_operand_id + i)
+            .collect();
+        self.next_operand_id += output_shapes.len() as u32;
+
+        let options = MLGruOptions {
+            label: String::new(),
+            bias: bias.map(|o| o.id),
+            recurrent_bias: recurrent_bias.map(|o| o.id),
+            initial_hidden_state: initial_hidden_state.map(|o| o.id),
+            reset_after,
+            return_sequence,
+            direction: direction.to_string(),
+            layout: layout.to_string(),
+            activations,
+        };
+
+        self.push_op(Operation::Gru {
+            input: input.id,
+            weight: weight.id,
+            recurrence: recurrent_weight.id,
+            steps,
+            hidden_size,
+            options: Some(options),
+            outputs: output_ids.clone(),
+        });
+
+        self.register_multi_output_operands(&output_ids, dtype, &output_shapes)
+    }
+
+    /// GRU cell (single step)
+    #[pyo3(signature = (input, weight, recurrent_weight, hidden_state, hidden_size, bias=None, recurrent_bias=None, reset_after=false, layout="zrn", activations=None))]
+    fn gru_cell(
+        &mut self,
+        input: &PyMLOperand,
+        weight: &PyMLOperand,
+        recurrent_weight: &PyMLOperand,
+        hidden_state: &PyMLOperand,
+        hidden_size: u32,
+        bias: Option<&PyMLOperand>,
+        recurrent_bias: Option<&PyMLOperand>,
+        reset_after: bool,
+        layout: &str,
+        activations: Option<Vec<String>>,
+    ) -> PyResult<PyMLOperand> {
+        let output_descriptor = if hidden_state.descriptor.static_or_max_shape().is_empty() {
+            let input_shape = input.descriptor.static_or_max_shape();
+            OperandDescriptor {
+                data_type: input.descriptor.data_type,
+                shape: to_dimension_vector(&[input_shape[0], hidden_size]),
+                pending_permutation: Vec::new(),
+            }
+        } else {
+            hidden_state.descriptor.clone()
+        };
+
+        let output_id = self.next_operand_id;
+        self.next_operand_id += 1;
+
+        let options = MLGruCellOptions {
+            label: String::new(),
+            bias: bias.map(|o| o.id),
+            recurrent_bias: recurrent_bias.map(|o| o.id),
+            reset_after,
+            layout: layout.to_string(),
+            activations,
+        };
+
+        self.push_op(Operation::GruCell {
+            input: input.id,
+            weight: weight.id,
+            recurrence: recurrent_weight.id,
+            hidden_state: hidden_state.id,
+            hidden_size,
+            options: Some(options),
+            outputs: vec![output_id],
+        });
+
+        self.register_output_operand(output_id, output_descriptor)
+    }
+
+    /// LSTM recurrent network
+    #[pyo3(signature = (input, weight, recurrent_weight, steps, hidden_size, bias=None, recurrent_bias=None, peephole_weight=None, initial_hidden_state=None, initial_cell_state=None, return_sequence=false, direction="forward", layout="iofg", activations=None))]
+    fn lstm(
+        &mut self,
+        input: &PyMLOperand,
+        weight: &PyMLOperand,
+        recurrent_weight: &PyMLOperand,
+        steps: u32,
+        hidden_size: u32,
+        bias: Option<&PyMLOperand>,
+        recurrent_bias: Option<&PyMLOperand>,
+        peephole_weight: Option<&PyMLOperand>,
+        initial_hidden_state: Option<&PyMLOperand>,
+        initial_cell_state: Option<&PyMLOperand>,
+        return_sequence: bool,
+        direction: &str,
+        layout: &str,
+        activations: Option<Vec<String>>,
+    ) -> PyResult<Vec<PyMLOperand>> {
+        let num_dir = recurrent_num_directions(direction);
+        let batch = recurrent_batch_size(&input.descriptor.static_or_max_shape());
+        let dtype = input.descriptor.data_type;
+
+        let mut output_shapes = vec![
+            vec![num_dir, batch, hidden_size],
+            vec![num_dir, batch, hidden_size],
+        ];
+        if return_sequence {
+            output_shapes.push(vec![steps, num_dir, batch, hidden_size]);
+        }
+
+        let output_ids: Vec<u32> = (0..output_shapes.len() as u32)
+            .map(|i| self.next_operand_id + i)
+            .collect();
+        self.next_operand_id += output_shapes.len() as u32;
+
+        let options = MLLstmOptions {
+            label: String::new(),
+            bias: bias.map(|o| o.id),
+            recurrent_bias: recurrent_bias.map(|o| o.id),
+            peephole_weight: peephole_weight.map(|o| o.id),
+            initial_hidden_state: initial_hidden_state.map(|o| o.id),
+            initial_cell_state: initial_cell_state.map(|o| o.id),
+            return_sequence,
+            direction: direction.to_string(),
+            layout: layout.to_string(),
+            activations,
+        };
+
+        self.push_op(Operation::Lstm {
+            input: input.id,
+            weight: weight.id,
+            recurrence: recurrent_weight.id,
+            steps,
+            hidden_size,
+            options: Some(options),
+            outputs: output_ids.clone(),
+        });
+
+        self.register_multi_output_operands(&output_ids, dtype, &output_shapes)
+    }
+
+    /// LSTM cell (single step)
+    #[pyo3(signature = (input, weight, recurrent_weight, hidden_state, cell_state, hidden_size, bias=None, recurrent_bias=None, peephole_weight=None, layout="iofg", activations=None))]
+    fn lstm_cell(
+        &mut self,
+        input: &PyMLOperand,
+        weight: &PyMLOperand,
+        recurrent_weight: &PyMLOperand,
+        hidden_state: &PyMLOperand,
+        cell_state: &PyMLOperand,
+        hidden_size: u32,
+        bias: Option<&PyMLOperand>,
+        recurrent_bias: Option<&PyMLOperand>,
+        peephole_weight: Option<&PyMLOperand>,
+        layout: &str,
+        activations: Option<Vec<String>>,
+    ) -> PyResult<Vec<PyMLOperand>> {
+        let output_ids = vec![self.next_operand_id, self.next_operand_id + 1];
+        self.next_operand_id += 2;
+
+        let options = MLLstmCellOptions {
+            label: String::new(),
+            bias: bias.map(|o| o.id),
+            recurrent_bias: recurrent_bias.map(|o| o.id),
+            peephole_weight: peephole_weight.map(|o| o.id),
+            layout: layout.to_string(),
+            activations,
+        };
+
+        self.push_op(Operation::LstmCell {
+            input: input.id,
+            weight: weight.id,
+            recurrence: recurrent_weight.id,
+            hidden_state: hidden_state.id,
+            cell_state: cell_state.id,
+            hidden_size,
+            options: Some(options),
+            outputs: output_ids.clone(),
+        });
+
+        let shapes = [
+            hidden_state.descriptor.clone(),
+            cell_state.descriptor.clone(),
+        ];
+        let mut py_operands = Vec::with_capacity(2);
+        for (id, descriptor) in output_ids.into_iter().zip(shapes) {
+            py_operands.push(self.register_output_operand(id, descriptor)?);
+        }
+        Ok(py_operands)
+    }
+
+    /// Query the static/max shape of an operand without building the graph
+    fn operand_shape(&self, operand: &PyMLOperand) -> Vec<u32> {
+        operand.descriptor.static_or_max_shape()
+    }
+
+    /// Query the data type of an operand
+    fn operand_data_type(&self, operand: &PyMLOperand) -> String {
+        match operand.descriptor.data_type {
+            DataType::Int4 => "int4".to_string(),
+            DataType::Uint4 => "uint4".to_string(),
+            DataType::Float32 => "float32".to_string(),
+            DataType::Float16 => "float16".to_string(),
+            DataType::Int32 => "int32".to_string(),
+            DataType::Uint32 => "uint32".to_string(),
+            DataType::Int8 => "int8".to_string(),
+            DataType::Uint8 => "uint8".to_string(),
+            DataType::Int64 => "int64".to_string(),
+            DataType::Uint64 => "uint64".to_string(),
+        }
+    }
 }
 
 impl PyMLGraphBuilder {
@@ -3395,9 +4181,46 @@ impl PyMLGraphBuilder {
         self.operations.push(op);
     }
 
-    /// Create a new graph builder (Rust-accessible constructor)
-    pub fn create() -> Self {
+    fn register_output_operand(
+        &mut self,
+        output_id: u32,
+        output_descriptor: OperandDescriptor,
+    ) -> PyResult<PyMLOperand> {
+        let output_operand = Operand {
+            descriptor: output_descriptor.clone(),
+            kind: OperandKind::Output,
+            name: None,
+        };
+        self.operands.push(output_operand);
+
+        let py_operand = PyMLOperand::new(output_id, output_descriptor, OperandKind::Output, None);
+        self.operand_map.insert(output_id, py_operand.clone());
+        Ok(py_operand)
+    }
+
+    fn register_multi_output_operands(
+        &mut self,
+        output_ids: &[u32],
+        data_type: DataType,
+        output_shapes: &[Vec<u32>],
+    ) -> PyResult<Vec<PyMLOperand>> {
+        let mut py_operands = Vec::with_capacity(output_ids.len());
+        for (id, shape) in output_ids.iter().zip(output_shapes.iter()) {
+            let descriptor = OperandDescriptor {
+                data_type,
+                shape: to_dimension_vector(shape),
+                pending_permutation: Vec::new(),
+            };
+            py_operands.push(self.register_output_operand(*id, descriptor)?);
+        }
+        Ok(py_operands)
+    }
+
+    /// Create a new graph builder tied to a context (internal).
+    pub(crate) fn new_for_context(context: Py<super::context::PyMLContext>) -> Self {
         Self {
+            context,
+            built: false,
             operands: Vec::new(),
             operations: Vec::new(),
             input_operands: Vec::new(),
@@ -3450,6 +4273,24 @@ impl PyMLGraphBuilder {
                 outputs: vec![output_id],
             },
             "div" => Operation::Div {
+                a: a.id,
+                b: b.id,
+                options: None,
+                outputs: vec![output_id],
+            },
+            "pow" => Operation::Pow {
+                a: a.id,
+                b: b.id,
+                options: None,
+                outputs: vec![output_id],
+            },
+            "max" => Operation::Max {
+                a: a.id,
+                b: b.id,
+                options: None,
+                outputs: vec![output_id],
+            },
+            "min" => Operation::Min {
                 a: a.id,
                 b: b.id,
                 options: None,
@@ -3604,8 +4445,13 @@ impl PyMLGraphBuilder {
     ) -> PyResult<PyMLOperand> {
         use rustnn::shape_inference::{infer_reduce_shape, ReduceOptions};
 
+        let infer_axes = match &axes {
+            None => (0..input.descriptor.static_or_max_shape().len() as u32).collect(),
+            Some(v) => v.clone(),
+        };
+
         let infer_opts = ReduceOptions {
-            axes: axes.clone().unwrap_or_default(),
+            axes: infer_axes,
             keep_dimensions,
         };
 

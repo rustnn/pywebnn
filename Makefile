@@ -1,10 +1,22 @@
 .PHONY: help setup setup-demos build test clean dev install lint fmt check all \
 	minilm-demo-hub mobilenet-demo-hub smollm-demo-hub run-all-demo run-all-demos
 
-# Python interpreter used by Make targets (override in CI or local env as needed)
-PYTHON ?= python3
 VENV_DIR = .venv
+
+# Invoke the virtual-environment interpreter directly.  This avoids activating
+# the environment through shell-specific syntax, so `make test` works with both
+# cmd.exe on Windows and POSIX shells on Linux/macOS.
+ifeq ($(OS),Windows_NT)
+PYTHON ?= python
+VENV_PYTHON = $(VENV_DIR)/Scripts/python.exe
+VENV_PIP = $(VENV_DIR)/Scripts/pip.exe
+VENV_ACTIVATE = $(VENV_DIR)/Scripts/activate
+else
+PYTHON ?= python3
+VENV_PYTHON = $(VENV_DIR)/bin/python
+VENV_PIP = $(VENV_DIR)/bin/pip
 VENV_ACTIVATE = $(VENV_DIR)/bin/activate
+endif
 
 help:
 	@echo "pywebnn - Python bindings for W3C WebNN"
@@ -33,13 +45,13 @@ setup:
 	@echo "Creating virtual environment..."
 	$(PYTHON) -m venv $(VENV_DIR)
 	@echo "Installing development dependencies..."
-	$(VENV_DIR)/bin/pip install --upgrade pip
-	$(VENV_DIR)/bin/pip install maturin pytest pytest-asyncio numpy onnxruntime
+	$(VENV_PIP) install --upgrade pip
+	$(VENV_PIP) install maturin pytest pytest-asyncio numpy onnxruntime
 	@echo "Virtual environment ready at $(VENV_DIR)"
 
 setup-demos: setup
 	@echo "Installing demo dependencies..."
-	$(VENV_DIR)/bin/pip install transformers torch Pillow requests --extra-index-url https://download.pytorch.org/whl/cpu
+	$(VENV_PIP) install transformers torch Pillow requests --extra-index-url https://download.pytorch.org/whl/cpu
 	@echo "Demo dependencies installed"
 
 dev: setup
@@ -62,14 +74,8 @@ install: build
 	@echo "Installation complete"
 
 test:
-	@if [ ! -d "$(VENV_DIR)" ]; then \
-		echo "Virtual environment not found. Run 'make setup' first."; \
-		exit 1; \
-	fi
 	@echo "Running Python tests..."
-	@ORT_DYLIB_PATH="$$(. $(VENV_ACTIVATE) && python tools/resolve_ort_dylib.py)" && \
-	echo "Using ORT_DYLIB_PATH=$$ORT_DYLIB_PATH" && \
-	. $(VENV_ACTIVATE) && ORT_DYLIB_PATH="$$ORT_DYLIB_PATH" pytest tests/ -v
+	@$(VENV_PYTHON) tools/run_tests.py
 
 lint:
 	@echo "Running Rust linting..."

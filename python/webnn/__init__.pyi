@@ -11,8 +11,10 @@ class ML:
 
     def create_context(
         self,
-        device_type: str = "cpu",
-        power_preference: str = "default"
+        power_preference: str = "default",
+        accelerated: bool = True,
+        device_type: str = "auto",
+        backend: str = "auto",
     ) -> MLContext:
         """
         Create a new ML context
@@ -20,6 +22,7 @@ class ML:
         Args:
             device_type: Device type ("cpu", "gpu", or "npu")
             power_preference: Power preference ("default", "high-performance", or "low-power")
+            backend: RustNN backend ("auto", "onnx", "trtx", "coreml", "litert", or "cann")
 
         Returns:
             A new MLContext instance
@@ -115,6 +118,14 @@ class MLContext:
             This is currently implemented as synchronous execution.
             True async execution will be added in future versions.
         """
+        ...
+
+    def resize_tensor(self, tensor: "MLTensor", shape: List[int]) -> None:
+        """Resize logical tensor shape for dynamic-input inference."""
+        ...
+
+    def set_tensor_capacity(self, tensor: "MLTensor", max_shape: List[int]) -> None:
+        """Pre-allocate tensor storage up to max_shape (logical shape unchanged)."""
         ...
 
     def create_tensor(

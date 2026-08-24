@@ -17,6 +17,7 @@ import argparse
 import difflib
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import urlretrieve
@@ -49,9 +50,21 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--backend",
-        choices=["cpu", "gpu", "coreml"],
+        choices=[
+            "auto",
+            "onnx",
+            "trtx",
+            "coreml",
+            "litert",
+            "cann",
+            "cpu",
+            "gpu",
+        ],
         default="cpu",
-        help="Execution backend hint",
+        help=(
+            "RustNN backend: auto, onnx, trtx, coreml, litert, or cann; "
+            "cpu and gpu are legacy device-preference aliases"
+        ),
     )
     parser.add_argument(
         "--force-download",
@@ -228,10 +241,27 @@ def resolve_tokenizer(model_id: str, cache_dir: Path, force: bool) -> Path:
 def create_context(backend: str) -> webnn.MLContext:
     ml = webnn.ML()
     if backend == "cpu":
-        return ml.create_context(power_preference="default", accelerated=False)
+        return ml.create_context(
+            power_preference="default", accelerated=False, device_type="cpu"
+        )
     if backend == "gpu":
-        return ml.create_context(power_preference="high-performance", accelerated=True)
-    return ml.create_context(power_preference="low-power", accelerated=True)
+        return ml.create_context(
+            power_preference="high-performance", accelerated=True, device_type="gpu"
+        )
+    if backend == "trtx":
+        return ml.create_context(
+            power_preference="high-performance",
+            accelerated=True,
+            device_type="gpu",
+            backend="trtx",
+        )
+    if backend == "coreml":
+        return ml.create_context(
+            power_preference="low-power", accelerated=True, backend="coreml"
+        )
+    return ml.create_context(
+        power_preference="default", accelerated=True, backend=backend
+    )
 
 
 def discover_layers(input_names: list[str]) -> list[int]:
@@ -241,6 +271,268 @@ def discover_layers(input_names: list[str]) -> list[int]:
         if match:
             layers.append(int(match.group(1)))
     return sorted(set(layers))
+
+
+_DIM_TOKEN_RE = re.compile(r"(?:Static\(\d+\)|Dynamic\([^)]+\))")
+
+
+def _max_dim_from_token(token: str) -> int:
+    token = token.strip()
+    if token.startswith("Static("):
+        return int(token[7:-1])
+    match = re.search(r"max_size:\s*(\d+)", token)
+    if match:
+        return int(match.group(1))
+    return 0
+
+
+def _parse_operand_shape(debug_line: str) -> list[int]:
+    start = debug_line.find("shape=[")
+    if start < 0:
+        raise RuntimeError(f"Could not parse operand shape from: {debug_line}")
+    start += len("shape=[")
+    end = debug_line.find("]", start)
+    if end < 0:
+        raise RuntimeError(f"Could not parse operand shape from: {debug_line}")
+    inner = debug_line[start:end]
+    return [_max_dim_from_token(token) for token in _DIM_TOKEN_RE.findall(inner)]
+
+
+@dataclass
+class SmolLMLayout:
+    num_layers: int
+    num_heads: int
+    max_cache_len: int
+    head_dim: int
+    logits_name: str
+    vocab_size: int
+
+
+def detect_layout(graph: webnn.MLGraph, output_names: list[str]) -> SmolLMLayout:
+    num_heads = head_dim = max_cache_len = None
+    for idx in range(graph.operand_count):
+        line = graph.debug_operand(idx)
+        if "past_key_values_0_key" not in line:
+            continue
+        shape = _parse_operand_shape(line)
+        if len(shape) != 4:
+            raise RuntimeError(f"Unexpected past_key shape: {shape}")
+        num_heads, max_cache_len, head_dim = shape[1], shape[2], shape[3]
+        break
+    if num_heads is None or max_cache_len is None or head_dim is None:
+        raise RuntimeError("Failed to detect KV layout from graph operands")
+
+    logits_name = None
+    vocab_size = None
+    for name in output_names:
+        if "logits" in name:
+            logits_name = name
+            break
+    if logits_name is None:
+        raise RuntimeError("Failed to detect logits output name")
+    for idx in range(graph.operand_count):
+        line = graph.debug_operand(idx)
+        if logits_name not in line:
+            continue
+        shape = _parse_operand_shape(line)
+        vocab_size = shape[-1]
+        break
+    if vocab_size is None:
+        raise RuntimeError(f"Failed to detect vocab size for {logits_name}")
+
+    layers = discover_layers(graph.get_input_names())
+    return SmolLMLayout(
+        num_layers=len(layers),
+        num_heads=num_heads,
+        max_cache_len=max_cache_len,
+        head_dim=head_dim,
+        logits_name=logits_name,
+        vocab_size=vocab_size,
+    )
+
+
+@dataclass
+class StepState:
+    cache: dict[str, np.ndarray]
+    current_pos: int
+
+
+@dataclass
+class StepTensors:
+    input_ids: webnn.MLTensor
+    position_ids: webnn.MLTensor
+    attention_mask: webnn.MLTensor
+    past_k: list[webnn.MLTensor]
+    past_v: list[webnn.MLTensor]
+    present_k: list[webnn.MLTensor]
+    present_v: list[webnn.MLTensor]
+    logits: webnn.MLTensor
+
+
+def init_step_state(layout: SmolLMLayout) -> StepState:
+    elems = layout.num_heads * layout.max_cache_len * layout.head_dim
+    cache: dict[str, np.ndarray] = {}
+    for layer in range(layout.num_layers):
+        cache[f"past_key_values_{layer}_key"] = np.zeros(elems, dtype=np.float32)
+        cache[f"past_key_values_{layer}_value"] = np.zeros(elems, dtype=np.float32)
+    return StepState(cache=cache, current_pos=0)
+
+
+def init_step_tensors(context: webnn.MLContext, layout: SmolLMLayout) -> StepTensors:
+    h = layout.num_heads
+    d = layout.head_dim
+    max_seq = layout.max_cache_len
+    max_past = max(0, max_seq - 1)
+
+    input_ids = context.create_host_tensor([1, 1], "int64")
+    position_ids = context.create_host_tensor([1, 1], "int64")
+
+    attention_mask = context.create_host_tensor([1, 1], "int64")
+    context.set_tensor_capacity(attention_mask, [1, max_seq])
+
+    past_k: list[webnn.MLTensor] = []
+    past_v: list[webnn.MLTensor] = []
+    present_k: list[webnn.MLTensor] = []
+    present_v: list[webnn.MLTensor] = []
+    for _ in range(layout.num_layers):
+        pk = context.create_host_tensor([1, h, 0, d], "float32")
+        context.set_tensor_capacity(pk, [1, h, max_past, d])
+        past_k.append(pk)
+
+        pv = context.create_host_tensor([1, h, 0, d], "float32")
+        context.set_tensor_capacity(pv, [1, h, max_past, d])
+        past_v.append(pv)
+
+        prk = context.create_host_tensor([1, h, 1, d], "float32")
+        context.set_tensor_capacity(prk, [1, h, max_seq, d])
+        present_k.append(prk)
+
+        prv = context.create_host_tensor([1, h, 1, d], "float32")
+        context.set_tensor_capacity(prv, [1, h, max_seq, d])
+        present_v.append(prv)
+
+    logits_shape = [1, 1, layout.vocab_size]
+    logits = context.create_host_tensor(logits_shape, "float32")
+
+    return StepTensors(
+        input_ids=input_ids,
+        position_ids=position_ids,
+        attention_mask=attention_mask,
+        past_k=past_k,
+        past_v=past_v,
+        present_k=present_k,
+        present_v=present_v,
+        logits=logits,
+    )
+
+
+def _compact_kv(
+    state: StepState,
+    layout: SmolLMLayout,
+    layer: int,
+    kv: str,
+    past_len: int,
+) -> np.ndarray:
+    if past_len == 0:
+        return np.array([], dtype=np.float32)
+    cache = state.cache[f"past_key_values_{layer}_{kv}"]
+    out = np.zeros(layout.num_heads * past_len * layout.head_dim, dtype=np.float32)
+    for head in range(layout.num_heads):
+        for t in range(past_len):
+            src = (head * layout.max_cache_len + t) * layout.head_dim
+            dst = (head * past_len + t) * layout.head_dim
+            out[dst : dst + layout.head_dim] = cache[src : src + layout.head_dim]
+    return out
+
+
+def _store_present(
+    state: StepState,
+    layout: SmolLMLayout,
+    layer: int,
+    kv: str,
+    present: np.ndarray,
+    seq_len: int,
+) -> None:
+    cache = state.cache[f"past_key_values_{layer}_{kv}"]
+    present = np.asarray(present, dtype=np.float32).reshape(
+        layout.num_heads, seq_len, layout.head_dim
+    )
+    for head in range(layout.num_heads):
+        dst = (head * layout.max_cache_len + state.current_pos) * layout.head_dim
+        cache[dst : dst + layout.head_dim] = present[head, seq_len - 1, :]
+
+
+def run_generation_step(
+    context: webnn.MLContext,
+    graph: webnn.MLGraph,
+    layout: SmolLMLayout,
+    tensors: StepTensors,
+    state: StepState,
+    token_id: int,
+) -> np.ndarray:
+    past_len = state.current_pos
+    seq_len = past_len + 1
+    h = layout.num_heads
+    d = layout.head_dim
+
+    context.resize_tensor(tensors.attention_mask, [1, seq_len])
+    for layer in range(layout.num_layers):
+        context.resize_tensor(tensors.past_k[layer], [1, h, past_len, d])
+        context.resize_tensor(tensors.past_v[layer], [1, h, past_len, d])
+        context.resize_tensor(tensors.present_k[layer], [1, h, seq_len, d])
+        context.resize_tensor(tensors.present_v[layer], [1, h, seq_len, d])
+
+    context.write_tensor(tensors.input_ids, np.array([[token_id]], dtype=np.int64))
+    context.write_tensor(tensors.position_ids, np.array([[past_len]], dtype=np.int64))
+    context.write_tensor(
+        tensors.attention_mask, np.ones((1, seq_len), dtype=np.int64)
+    )
+
+    for layer in range(layout.num_layers):
+        k_data = _compact_kv(state, layout, layer, "key", past_len)
+        if k_data.size:
+            context.write_tensor(tensors.past_k[layer], k_data)
+        v_data = _compact_kv(state, layout, layer, "value", past_len)
+        if v_data.size:
+            context.write_tensor(tensors.past_v[layer], v_data)
+
+    inputs: dict[str, webnn.MLTensor] = {
+        "input_ids": tensors.input_ids,
+        "position_ids": tensors.position_ids,
+        "attention_mask": tensors.attention_mask,
+    }
+    for layer in range(layout.num_layers):
+        inputs[f"past_key_values_{layer}_key"] = tensors.past_k[layer]
+        inputs[f"past_key_values_{layer}_value"] = tensors.past_v[layer]
+
+    outputs: dict[str, webnn.MLTensor] = {layout.logits_name: tensors.logits}
+    for layer in range(layout.num_layers):
+        outputs[f"present_{layer}_key"] = tensors.present_k[layer]
+        outputs[f"present_{layer}_value"] = tensors.present_v[layer]
+
+    context.dispatch(graph, inputs, outputs)
+
+    logits = np.asarray(context.read_tensor(tensors.logits), dtype=np.float32)
+    if logits.ndim == 3:
+        logits = logits[0, 0, :]
+    elif logits.ndim == 2:
+        logits = logits[0, :]
+    else:
+        logits = logits.reshape(-1)
+
+    kv_elems = layout.num_heads * seq_len * layout.head_dim
+    for layer in range(layout.num_layers):
+        present_k = np.asarray(
+            context.read_tensor(tensors.present_k[layer]), dtype=np.float32
+        ).reshape(-1)[:kv_elems]
+        _store_present(state, layout, layer, "key", present_k, seq_len)
+        present_v = np.asarray(
+            context.read_tensor(tensors.present_v[layer]), dtype=np.float32
+        ).reshape(-1)[:kv_elems]
+        _store_present(state, layout, layer, "value", present_v, seq_len)
+
+    state.current_pos += 1
+    return logits
 
 
 def run_transformers_baseline(
@@ -336,6 +628,9 @@ def main() -> None:
     print("Creating context...")
     context = create_context(args.backend)
     print(f"   [OK] Context created (accelerated={context.accelerated})")
+    backend_info = context.backend_info()
+    print(f"   [OK] Backend requested: {backend_info['backend_requested']}")
+    print(f"   [OK] Compiled features: {backend_info['compiled_features']}")
     print()
 
     print("Loading tokenizer...")
@@ -350,53 +645,32 @@ def main() -> None:
     if not layers:
         raise RuntimeError("No KV-cache layer inputs detected in graph")
 
-    num_heads = 3
-    head_dim = 64
-    past_key_values: dict[str, np.ndarray] = {}
-    for layer in layers:
-        past_key_values[f"past_key_values_{layer}_key"] = np.zeros(
-            (1, num_heads, 0, head_dim), dtype=np.float32
+    layout = detect_layout(graph, output_names)
+    print(
+        f"   [OK] Layout: {layout.num_layers} layers, {layout.num_heads} heads, "
+        f"cache_len={layout.max_cache_len}, head_dim={layout.head_dim}, vocab={layout.vocab_size}"
+    )
+
+    if len(prompt_ids) >= layout.max_cache_len:
+        raise RuntimeError(
+            f"Prompt too long: {len(prompt_ids)} tokens (max {layout.max_cache_len - 1})"
         )
-        past_key_values[f"past_key_values_{layer}_value"] = np.zeros(
-            (1, num_heads, 0, head_dim), dtype=np.float32
-        )
 
-    def run_step(token_id: int, position: int) -> np.ndarray:
-        inputs: dict[str, np.ndarray] = {
-            "input_ids": np.array([[token_id]], dtype=np.int64),
-            "position_ids": np.array([[position]], dtype=np.int64),
-            "attention_mask": np.ones((1, position + 1), dtype=np.int64),
-        }
-        inputs.update(past_key_values)
-
-        outputs = context.compute(graph, inputs)
-        logits = np.asarray(outputs["logits"], dtype=np.float32)[0, 0, :]
-
-        for layer in layers:
-            pk_name = f"present_{layer}_key"
-            pv_name = f"present_{layer}_value"
-            if pk_name not in outputs or pv_name not in outputs:
-                raise RuntimeError(f"Missing cache outputs for layer {layer}")
-            past_key_values[f"past_key_values_{layer}_key"] = np.asarray(
-                outputs[pk_name], dtype=np.float32
-            )
-            past_key_values[f"past_key_values_{layer}_value"] = np.asarray(
-                outputs[pv_name], dtype=np.float32
-            )
-
-        if args.trace:
-            print(
-                f"TRACE pos={position} token_in={token_id} logits_argmax={int(np.argmax(logits))}"
-            )
-        return logits
+    step_state = init_step_state(layout)
+    step_tensors = init_step_tensors(context, layout)
 
     print("Running generation...")
     rng = np.random.default_rng(args.seed)
-    position = 0
     last_logits = None
     for token_id in prompt_ids:
-        last_logits = run_step(token_id, position)
-        position += 1
+        last_logits = run_generation_step(
+            context, graph, layout, step_tensors, step_state, token_id
+        )
+        if args.trace:
+            print(
+                f"TRACE pos={step_state.current_pos - 1} token_in={token_id} "
+                f"logits_argmax={int(np.argmax(last_logits))}"
+            )
 
     if last_logits is None:
         raise RuntimeError("Failed to run prompt prefill")
@@ -417,8 +691,14 @@ def main() -> None:
         if args.stream:
             piece = tokenizer.decode([next_id])
             print(piece, end="", flush=True)
-        last_logits = run_step(next_id, position)
-        position += 1
+        last_logits = run_generation_step(
+            context, graph, layout, step_tensors, step_state, next_id
+        )
+        if args.trace:
+            print(
+                f"TRACE pos={step_state.current_pos - 1} token_in={next_id} "
+                f"logits_argmax={int(np.argmax(last_logits))}"
+            )
 
     if args.stream:
         print()

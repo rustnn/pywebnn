@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "pywebnn"
-version = "0.5.11"
+version = "0.5.13"
 description = "Python bindings for W3C WebNN specification"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -45,5 +45,5 @@ Issues = "https://github.com/rustnn/pywebnn/issues"
 [tool.maturin]
 module-name = "webnn._rustnn"
 python-source = "python"
-# Enable ONNX Runtime and CoreML by default for editable installs.
-features = ["pyo3/extension-module", "onnx-runtime", "coreml-runtime"]
+# CoreML is opt-in because it requires Apple's Objective-C runtime.
+features = ["pyo3/extension-module", "onnx-runtime", "dynamic-inputs"]
