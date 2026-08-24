@@ -94,7 +94,7 @@ def create_complex_model(builder):
     return builder.build({"output": x})
 
 
-@pytest.mark.benchmark
+# @pytest.mark.benchmark  # Reserved for a future pytest-benchmark integration.
 def test_performance_simple_onnx_cpu(ml):
     """Test ONNX CPU performance with simple model (baseline)"""
     context = ml.create_context(power_preference="default", accelerated=False)
@@ -118,7 +118,7 @@ def test_performance_simple_onnx_cpu(ml):
     assert warm_avg < 100, f"Warm run too slow: {warm_avg:.2f}ms"
 
 
-@pytest.mark.benchmark
+# @pytest.mark.benchmark  # Reserved for a future pytest-benchmark integration.
 @pytest.mark.skipif(
     not pytest.importorskip("webnn", reason="WebNN not available"),
     reason="CoreML runtime not available"
@@ -146,7 +146,7 @@ def test_performance_simple_coreml(ml):
     assert warm_avg < 100, f"Warm run too slow: {warm_avg:.2f}ms"
 
 
-@pytest.mark.benchmark
+# @pytest.mark.benchmark  # Reserved for a future pytest-benchmark integration.
 @pytest.mark.slow
 def test_performance_complex_onnx_cpu(ml):
     """Test ONNX CPU performance with complex model"""
@@ -171,7 +171,7 @@ def test_performance_complex_onnx_cpu(ml):
     assert warm_avg < 200, f"Warm run too slow: {warm_avg:.2f}ms"
 
 
-@pytest.mark.benchmark
+# @pytest.mark.benchmark  # Reserved for a future pytest-benchmark integration.
 @pytest.mark.slow
 @pytest.mark.skipif(
     not pytest.importorskip("webnn", reason="WebNN not available"),
@@ -210,7 +210,7 @@ def test_performance_complex_coreml(ml):
         print(f"[WARNING] No warm-up benefit detected: {speedup:.2f}x")
 
 
-@pytest.mark.benchmark
+# @pytest.mark.benchmark  # Reserved for a future pytest-benchmark integration.
 def test_performance_comparison_simple(ml):
     """Compare all backends with simple model"""
     results = {}

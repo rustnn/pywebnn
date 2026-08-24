@@ -154,9 +154,10 @@ class AsyncMLContext:
             >>> output_tensor = context.create_tensor([2, 3], "float32")
             >>> await async_context.dispatch(graph, {"x": input_tensor}, {"out": output_tensor})
         """
-        # Run synchronous dispatch in thread pool to avoid blocking event loop
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, self._context.dispatch, graph, inputs, outputs)
+        # PyO3 marks MLContext as thread-affine.  Keep its objects on the event
+        # loop thread rather than moving them into an executor thread.
+        await asyncio.sleep(0)
+        self._context.dispatch(graph, inputs, outputs)
 
     async def read_tensor_async(self, tensor: MLTensor) -> np.ndarray:
         """Read tensor data asynchronously.
@@ -170,8 +171,8 @@ class AsyncMLContext:
         Example:
             >>> result = await async_context.read_tensor_async(output_tensor)
         """
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._context.read_tensor, tensor)
+        await asyncio.sleep(0)
+        return self._context.read_tensor(tensor)
 
     async def write_tensor_async(self, tensor: MLTensor, data: np.ndarray) -> None:
         """Write tensor data asynchronously.
@@ -183,8 +184,8 @@ class AsyncMLContext:
         Example:
             >>> await async_context.write_tensor_async(input_tensor, data)
         """
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, self._context.write_tensor, tensor, data)
+        await asyncio.sleep(0)
+        self._context.write_tensor(tensor, data)
 
     # Synchronous methods pass through to underlying context
     def create_graph_builder(self) -> MLGraphBuilder:

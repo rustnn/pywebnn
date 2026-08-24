@@ -20,14 +20,20 @@ pub struct PyMLTensor {
     /// Retains the owning Python context for the tensor's full lifetime.
     pub(crate) _context: Py<PyMLContext>,
     pub(crate) inner: RustnnTensor,
+    exportable_to_gpu: bool,
     destroyed: Arc<Mutex<bool>>,
 }
 
 impl PyMLTensor {
-    pub(crate) fn from_rustnn(context: Py<PyMLContext>, inner: RustnnTensor) -> Self {
+    pub(crate) fn from_rustnn(
+        context: Py<PyMLContext>,
+        inner: RustnnTensor,
+        exportable_to_gpu: bool,
+    ) -> Self {
         Self {
             _context: context,
             inner,
+            exportable_to_gpu,
             destroyed: Arc::new(Mutex::new(false)),
         }
     }
@@ -76,7 +82,7 @@ impl PyMLTensor {
 
     #[getter]
     fn exportable_to_gpu(&self) -> bool {
-        false
+        self.exportable_to_gpu
     }
 
     fn destroy(&self) -> PyResult<()> {

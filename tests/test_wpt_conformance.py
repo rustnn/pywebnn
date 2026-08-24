@@ -27,18 +27,35 @@ import pytest
 
 from runtime_support import COREML_BACKEND_AVAILABLE, EXECUTION_BACKEND_AVAILABLE
 
-from wpt_assert import assert_output_close
-from wpt_tolerance_fallback import compute_wpt_tolerance_fallback
-from wpt_execute_graph import execute_graph_resources, normalize_op_name
-from wpt_js_loader import (
-    default_wpt_dir,
-    discover_wpt_files,
-    load_wpt_conformance_file,
-    node_available,
-    operation_from_wpt_file,
-    resolve_wpt_tolerance,
-    wpt_cache_available,
-)
+try:
+    from wpt_assert import assert_output_close
+    from wpt_tolerance_fallback import compute_wpt_tolerance_fallback
+    from wpt_execute_graph import execute_graph_resources, normalize_op_name
+    from wpt_js_loader import (
+        default_wpt_dir,
+        discover_wpt_files,
+        load_wpt_conformance_file,
+        node_available,
+        operation_from_wpt_file,
+        resolve_wpt_tolerance,
+        wpt_cache_available,
+    )
+except ModuleNotFoundError as err:
+    # WPT support is optional: the helper modules are intentionally kept with
+    # the external WPT harness and are not part of the normal test install.
+    # Skip this optional test module instead of aborting collection of the
+    # project test suite when that harness is unavailable.
+    if err.name in {
+        "wpt_assert",
+        "wpt_tolerance_fallback",
+        "wpt_execute_graph",
+        "wpt_js_loader",
+    }:
+        pytest.skip(
+            f"WPT conformance harness is unavailable (missing {err.name})",
+            allow_module_level=True,
+        )
+    raise
 
 SUPPORTED_DTYPES = {
     "float32",

@@ -3180,7 +3180,6 @@ def test_hard_sigmoid_multidimensional(context):
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
-@pytest.mark.skip(reason="HardSwish requires ONNX opset 14+, runtime 1.17.0 uses opset 13")
 @requires_execution_backend
 def test_hard_swish_default_params(context):
     """Test hard swish with default alpha=1/6, beta=0.5"""
@@ -3203,7 +3202,6 @@ def test_hard_swish_default_params(context):
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
-@pytest.mark.skip(reason="HardSwish requires ONNX opset 14+, runtime 1.17.0 uses opset 13")
 @requires_execution_backend
 def test_hard_swish_custom_params(context):
     """Test hard swish with custom alpha and beta"""
@@ -3221,7 +3219,6 @@ def test_hard_swish_custom_params(context):
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
-@pytest.mark.skip(reason="HardSwish requires ONNX opset 14+, runtime 1.17.0 uses opset 13")
 @requires_execution_backend
 def test_hard_swish_multidimensional(context):
     """Test hard swish with 3D input"""

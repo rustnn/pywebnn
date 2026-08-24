@@ -3440,39 +3440,11 @@ impl PyMLGraphBuilder {
     ///     MLOperand: Output operand
     #[pyo3(signature = (input, alpha=0.166_666_67, beta=0.5))]
     fn hard_swish(&mut self, input: &PyMLOperand, alpha: f32, beta: f32) -> PyResult<PyMLOperand> {
-        use rustnn::shape_inference::infer_hardswish_shape;
-
-        let _ = (alpha, beta);
-
-        let output_shape = infer_hardswish_shape(&input.descriptor.static_or_max_shape())
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-
-        let output_descriptor = OperandDescriptor {
-            data_type: input.descriptor.data_type,
-            shape: to_dimension_vector(&output_shape),
-            pending_permutation: Vec::new(),
-        };
-
-        let output_id = self.next_operand_id;
-        self.next_operand_id += 1;
-
-        self.push_op(Operation::HardSwish {
-            input: input.id,
-            options: None,
-            outputs: vec![output_id],
-        });
-
-        let output_operand = Operand {
-            descriptor: output_descriptor.clone(),
-            kind: OperandKind::Output,
-            name: None,
-        };
-        self.operands.push(output_operand);
-
-        let py_operand = PyMLOperand::new(output_id, output_descriptor, OperandKind::Output, None);
-        self.operand_map.insert(output_id, py_operand.clone());
-
-        Ok(py_operand)
+        // Compose hardSwish so alpha and beta are preserved.  This also avoids
+        // depending on the dedicated ONNX HardSwish operator (introduced after
+        // opset 13), while remaining equivalent to the WebNN operation.
+        let hard_sigmoid = self.hard_sigmoid(input, alpha, beta)?;
+        self.mul(input, &hard_sigmoid)
     }
 
     /// softplus activation operation

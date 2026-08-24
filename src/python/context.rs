@@ -258,7 +258,7 @@ impl PyMLContext {
     ///
     ///     # Convenience: use create_host_tensor() for host tensors
     ///     host_tensor = context.create_host_tensor([2, 3], "float32")
-    #[pyo3(signature = (shape, data_type, readable=false, writable=false, _exportable_to_gpu=false))]
+    #[pyo3(signature = (shape, data_type, readable=false, writable=false, exportable_to_gpu=false))]
     fn create_tensor(
         this: Py<Self>,
         py: Python,
@@ -266,12 +266,16 @@ impl PyMLContext {
         data_type: &str,
         readable: bool,
         writable: bool,
-        _exportable_to_gpu: bool,
+        exportable_to_gpu: bool,
     ) -> PyResult<PyMLTensor> {
         let ctx = this.bind(py).borrow();
         let mut state = ctx.state.lock().unwrap();
         let inner = create_rustnn_tensor(&mut state, shape, data_type, readable, writable)?;
-        Ok(PyMLTensor::from_rustnn(this.clone_ref(py), inner))
+        Ok(PyMLTensor::from_rustnn(
+            this.clone_ref(py),
+            inner,
+            exportable_to_gpu,
+        ))
     }
 
     /// Convenience method for creating host-backed tensors (non-spec extension)
@@ -572,6 +576,7 @@ impl PyMLContext {
         pool2d_limits.set_item("output", create_tensor_limits(py, true)?)?;
         result.set_item("averagePool2d", pool2d_limits.clone())?;
         result.set_item("maxPool2d", pool2d_limits)?;
+        result.set_item("l2Pool2d", create_single_input_limits(py)?)?;
 
         // Normalization
         let batch_norm_limits = PyDict::new(py);
