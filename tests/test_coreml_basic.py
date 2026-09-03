@@ -174,7 +174,7 @@ def main() -> int:
     # Initialize
     print_step(0, "Initializing ML context...")
     ml = webnn.ML()
-    context = ml.create_context(device_type="cpu")
+    context = ml.create_context(device_type="npu", accelerated=True, backend="coreml")
     print_success("Context created")
 
     # Build graph

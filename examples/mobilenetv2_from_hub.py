@@ -96,11 +96,29 @@ def main():
 
     # Backend settings
     if args.backend == "cpu":
-        accelerated, power, backend_name = False, "default", "ONNX CPU"
+        accelerated, power, device_type, backend, backend_name = (
+            False,
+            "default",
+            "cpu",
+            "onnx",
+            "ONNX CPU",
+        )
     elif args.backend == "gpu":
-        accelerated, power, backend_name = True, "high-performance", "ONNX GPU"
+        accelerated, power, device_type, backend, backend_name = (
+            True,
+            "high-performance",
+            "gpu",
+            "onnx",
+            "ONNX GPU",
+        )
     else:
-        accelerated, power, backend_name = True, "high-performance", "CoreML (Neural Engine)"
+        accelerated, power, device_type, backend, backend_name = (
+            True,
+            "high-performance",
+            "npu",
+            "coreml",
+            "CoreML (Neural Engine)",
+        )
 
     print("=" * 70)
     print("MobileNetV2 Image Classification (Hugging Face Hub)")
@@ -149,7 +167,12 @@ def main():
     # Create context
     print("Creating WebNN context...")
     ml = webnn.ML()
-    context = ml.create_context(power_preference=power, accelerated=accelerated)
+    context = ml.create_context(
+        power_preference=power,
+        accelerated=accelerated,
+        device_type=device_type,
+        backend=backend,
+    )
     print(f"   [OK] Context created (accelerated={context.accelerated})")
     print()
 
