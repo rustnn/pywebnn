@@ -12,7 +12,7 @@ VENV_PYTHON = $(VENV_DIR)/Scripts/python.exe
 VENV_PIP = $(VENV_DIR)/Scripts/pip.exe
 VENV_ACTIVATE = $(VENV_DIR)/Scripts/activate
 else
-PYTHON ?= python3
+PYTHON ?= $(shell command -v python3.11 2>/dev/null || command -v python3.10 2>/dev/null || command -v python3)
 VENV_PYTHON = $(VENV_DIR)/bin/python
 VENV_PIP = $(VENV_DIR)/bin/pip
 VENV_ACTIVATE = $(VENV_DIR)/bin/activate
