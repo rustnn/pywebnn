@@ -82,6 +82,9 @@ pub(crate) fn build_context_options(
     };
     let options = MLContextOptions::new(power_preference, accelerated);
     match backend {
+        "auto" if device_type == "cpu" || !accelerated => {
+            Ok(options.with_rustnn_backend_hint(Backend::Onnx))
+        }
         "auto" => Ok(options),
         "onnx" => Ok(options.with_rustnn_backend_hint(Backend::Onnx)),
         "trtx" => Ok(options.with_rustnn_backend_hint(Backend::Trtx)),

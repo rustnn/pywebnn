@@ -97,7 +97,7 @@ def create_complex_model(builder):
 # @pytest.mark.benchmark  # Reserved for a future pytest-benchmark integration.
 def test_performance_simple_onnx_cpu(ml):
     """Test ONNX CPU performance with simple model (baseline)"""
-    context = ml.create_context(power_preference="default", accelerated=False)
+    context = ml.create_context(power_preference="default", accelerated=False, backend="onnx")
     builder = context.create_graph_builder()
     graph = create_simple_model(builder)
 
@@ -125,7 +125,9 @@ def test_performance_simple_onnx_cpu(ml):
 )
 def test_performance_simple_coreml(ml):
     """Test CoreML performance with simple model"""
-    context = ml.create_context(power_preference="default", accelerated=True)
+    context = ml.create_context(
+        power_preference="default", accelerated=True, device_type="npu", backend="coreml"
+    )
     builder = context.create_graph_builder()
     graph = create_simple_model(builder)
 
@@ -150,7 +152,7 @@ def test_performance_simple_coreml(ml):
 @pytest.mark.slow
 def test_performance_complex_onnx_cpu(ml):
     """Test ONNX CPU performance with complex model"""
-    context = ml.create_context(power_preference="default", accelerated=False)
+    context = ml.create_context(power_preference="default", accelerated=False, backend="onnx")
     builder = context.create_graph_builder()
     graph = create_complex_model(builder)
 
@@ -179,7 +181,9 @@ def test_performance_complex_onnx_cpu(ml):
 )
 def test_performance_complex_coreml(ml):
     """Test CoreML performance with complex model - validates warm-up speedup"""
-    context = ml.create_context(power_preference="default", accelerated=True)
+    context = ml.create_context(
+        power_preference="default", accelerated=True, device_type="npu", backend="coreml"
+    )
     builder = context.create_graph_builder()
     graph = create_complex_model(builder)
 

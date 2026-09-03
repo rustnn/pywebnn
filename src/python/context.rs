@@ -1,4 +1,4 @@
-﻿//! ML context and backend selection for WebNN API
+//! ML context and backend selection for WebNN API
 //!
 //! PyO3 macros generate unsafe code that triggers unsafe_op_in_unsafe_fn warnings.
 //! This is expected behavior from the macro-generated code.
@@ -728,11 +728,17 @@ impl PyMLContext {
             &backend,
         )?;
         let state = ContextState::new(options)?;
+        let resolved_backend =
+            if backend == "auto" && (device_type == "cpu" || !accelerated_requested) {
+                "onnx".to_string()
+            } else {
+                backend
+            };
         Ok(Self {
             power_preference,
             accelerated_requested,
             device_type,
-            backend,
+            backend: resolved_backend,
             state: Mutex::new(state),
         })
     }
