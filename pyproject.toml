@@ -31,6 +31,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+trtx = [
+    "tensorrt_rtx_cu13_libs==1.6.1.120",
+]
 test = [
     "pytest>=7.0",
     "pytest-asyncio",
@@ -46,4 +49,4 @@ Issues = "https://github.com/rustnn/pywebnn/issues"
 module-name = "webnn._rustnn"
 python-source = "python"
 # CoreML is opt-in because it requires Apple's Objective-C runtime.
-features = ["pyo3/extension-module", "onnx-runtime", "dynamic-inputs"]
+features = ["pyo3/extension-module", "onnx-runtime", "trtx-runtime", "dynamic-inputs"]
