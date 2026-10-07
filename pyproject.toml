@@ -37,7 +37,12 @@ classifiers = [
 dependencies = ["numpy>=1.20.0", "onnxruntime>=1.29.0"]
 
 [project.optional-dependencies]
-test = ["pytest>=7.0"]
+trtx = [
+    "tensorrt_rtx_cu13_libs==1.6.1.120",
+]
+test = [
+    "pytest>=7.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/rustnn/pywebnn"
