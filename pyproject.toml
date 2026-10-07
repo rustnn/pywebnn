@@ -31,6 +31,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+trtx = [
+    "tensorrt_rtx_cu13_libs==1.6.1.120",
+]
 test = [
     "pytest>=7.0",
     "pytest-asyncio",
