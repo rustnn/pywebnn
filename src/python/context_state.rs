@@ -1,5 +1,7 @@
 //! Internal rustnn `MLContext` state shared by pywebnn bindings.
 
+#[cfg(feature = "trtx-runtime")]
+use log::warn;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyTuple};
@@ -37,6 +39,35 @@ fn init_rust_logging_if_requested() {
             let _ = pretty_env_logger::try_init();
         });
     }
+}
+
+/// Prefer the compatible optional Python runtime package over library discovery.
+#[cfg(feature = "trtx-runtime")]
+fn try_setting_tensorrt_libs(py: Python<'_>) -> PyResult<()> {
+    let metadata = py.import("importlib.metadata")?;
+    let version = match metadata.call_method1("version", ("tensorrt_rtx_cu13_libs",)) {
+        Ok(version) => version.extract::<String>()?,
+        Err(err) if err.matches(py, &metadata.getattr("PackageNotFoundError")?)? => return Ok(()),
+        Err(err) => return Err(err),
+    };
+    if version != "1.6.1.120" {
+        return Ok(());
+    }
+
+    let libs = py.import("tensorrt_rtx_libs")?;
+    let mut library_path: std::path::PathBuf = libs.getattr("__file__")?.extract()?;
+    let filename = if cfg!(target_os = "windows") {
+        "tensorrt_rtx_1_6.dll"
+    } else {
+        "libtensorrt_rtx.so.1"
+    };
+    library_path.set_file_name(filename);
+    rustnn::backends::trtx::dynamically_load_tensorrt(Some(&library_path)).map_err(|err| {
+        PyRuntimeError::new_err(format!(
+            "Failed to load the packaged TensorRT RTX runtime at {}: {err}",
+            library_path.display()
+        ))
+    })
 }
 
 pub(crate) fn map_rustnn_error(err: rustnn::error::Error) -> PyErr {
@@ -211,6 +242,10 @@ pub(crate) fn ml_tensor_descriptor(
 impl ContextState {
     pub fn new(options: MLContextOptions) -> PyResult<Self> {
         init_rust_logging_if_requested();
+        #[cfg(feature = "trtx-runtime")]
+        let _ = Python::attach(try_setting_tensorrt_libs)
+            .map_err(|err| warn!("Failed to load TensorRT library from pip package: {err:?}"));
+
         // SAFETY: `MLContext` and backend builders do not expose references tied to caller
         // stack frames; storing in this struct is the intended ownership model for pywebnn.
         let ml_context = MLContext::create(&options).map_err(map_rustnn_error)?;
