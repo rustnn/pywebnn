@@ -1,5 +1,6 @@
 """Runtime probes shared by native binding tests."""
 
+import itertools
 import platform
 
 import numpy as np
@@ -27,6 +28,10 @@ EXECUTION_BACKEND_AVAILABLE = _can_execute("onnx", False)
 COREML_BACKEND_AVAILABLE = platform.system() == "Darwin" and _can_execute(
     "coreml", True
 )
+TESTED_BACKENDS = ("trtx", "onnx", "cann", "litert")
+AVAILABLE_BACKEND_ACCELERATED_COMBOS = [
+    b for b in itertools.product(TESTED_BACKENDS, (True, False)) if _can_execute(*b)
+]
 requires_execution_backend = pytest.mark.skipif(
     not EXECUTION_BACKEND_AVAILABLE, reason="No working ONNX CPU backend"
 )

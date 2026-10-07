@@ -18,6 +18,15 @@ Select a compiled RustNN backend with `backend="onnx"`, `"coreml"`, `"trtx"`,
 must be enabled when building, for example `maturin develop --features trtx-runtime`.
 Provide the runtime libraries required by that backend.
 
+To install a local checkout with features enabled you can use for example
+
+```bash
+# install with coreml-runtime feature
+MATURIN_PEP517_ARGS="--features coreml-runtime" pip install -e '.'
+# install with trtx-runtime-runtime feature and TensorRT libraries via pip
+MATURIN_PEP517_ARGS="--features trtx-runtime" pip install -e '.[trtx]'
+```
+
 ## Build and execute
 
 ```python

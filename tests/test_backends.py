@@ -1,13 +1,24 @@
 """Native coreml context integration with persistent tensors."""
 
+import itertools
+
 import numpy as np
+import pytest
 import webnn
-from runtime_support import requires_coreml_backend
+from runtime_support import (
+    AVAILABLE_BACKEND_ACCELERATED_COMBOS,
+    TESTED_BACKENDS,
+)
 
 
-@requires_coreml_backend
-def test_native_backend_dispatch():
-    context = webnn.ML().create_context(backend="coreml", accelerated=True)
+@pytest.mark.parametrize(
+    ("backend", "accelerated"), list(itertools.product(TESTED_BACKENDS, (True, False)))
+)
+def test_native_backend_dispatch(backend, accelerated):
+    if (backend, accelerated) not in AVAILABLE_BACKEND_ACCELERATED_COMBOS:
+        pytest.skip(f"{backend} with {accelerated=} not available")
+
+    context = webnn.ML().create_context(backend=backend, accelerated=accelerated)
     builder = context.create_graph_builder()
     x = builder.input("x", [2], "float32")
     graph = builder.build({"y": builder.add(x, x)})

@@ -1,5 +1,7 @@
 //! Internal rustnn `MLContext` state shared by pywebnn bindings.
 
+#[cfg(feature = "trtx-runtime")]
+use log::warn;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyTuple};
@@ -30,6 +32,44 @@ fn init_rust_logging_if_requested() {
             let _ = pretty_env_logger::try_init();
         });
     }
+}
+
+/// Prefer the compatible optional Python runtime package over library discovery.
+#[cfg(feature = "trtx-runtime")]
+fn try_setting_tensorrt_libs(py: Python<'_>) -> PyResult<()> {
+    use rustnn::backends::trtx::{
+        get_tensorrt_major_version, get_tensorrt_minor_version, get_tensorrt_patch_version,
+    };
+    let major = unsafe { get_tensorrt_major_version() };
+    let minor = unsafe { get_tensorrt_minor_version() };
+    let patch = unsafe { get_tensorrt_patch_version() };
+
+    let metadata = py.import("importlib.metadata")?;
+    let version = match metadata.call_method1("version", ("tensorrt_rtx_cu13_libs",)) {
+        Ok(version) => version.extract::<String>()?,
+        Err(err) if err.matches(py, &metadata.getattr("PackageNotFoundError")?)? => return Ok(()),
+        Err(err) => return Err(err),
+    };
+    if !version.starts_with(&format!("{major}.{minor}.{patch}.")) {
+        return Err(PyRuntimeError::new_err(format!(
+            "Wrong TensorRT RTX version from Python: {version}. Current RustNN needs {major}.{minor}.{patch}",
+        )));
+    }
+
+    let libs = py.import("tensorrt_rtx_libs")?;
+    let mut library_path: std::path::PathBuf = libs.getattr("__file__")?.extract()?;
+    let filename = if cfg!(target_os = "windows") {
+        format!("tensorrt_rtx_{major}_{minor}.dll")
+    } else {
+        format!("libtensorrt_rtx.so.{major}")
+    };
+    library_path.set_file_name(filename);
+    rustnn::backends::trtx::dynamically_load_tensorrt(Some(&library_path)).map_err(|err| {
+        PyRuntimeError::new_err(format!(
+            "Failed to load the packaged TensorRT RTX runtime at {}: {err}",
+            library_path.display()
+        ))
+    })
 }
 
 pub(crate) fn map_rustnn_error(err: rustnn::error::Error) -> PyErr {
@@ -181,6 +221,9 @@ pub(crate) fn ml_tensor_descriptor(
 impl ContextState {
     pub fn new(options: MLContextOptions) -> PyResult<Self> {
         init_rust_logging_if_requested();
+        #[cfg(feature = "trtx-runtime")]
+        let _ = Python::attach(try_setting_tensorrt_libs)
+            .map_err(|err| warn!("Failed to load TensorRT library from pip package: {err:?}"));
         // The safe RustNN constructor owns its runtime; options are not borrowed.
         let ml_context: MLContext<'static> =
             MLContext::create(&options).map_err(map_rustnn_error)?;
