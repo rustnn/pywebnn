@@ -40,7 +40,7 @@ def measure_inference_time(context, graph, inputs: Dict, num_runs: int = 5) -> T
 
     for i in range(num_runs):
         start = time.time()
-        result = context.compute(graph, inputs)
+        context.compute(graph, inputs)
         elapsed = (time.time() - start) * 1000
         times.append(elapsed)
 

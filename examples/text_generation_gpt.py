@@ -132,8 +132,8 @@ class SimpleTransformerLM:
 
         # Simplified attention: use last token's representation
         # Q, K, V = x @ W_q, x @ W_k, x @ W_v
-        Q = builder.matmul(x_input, W_q)  # (seq_len, d_model)
-        K = builder.matmul(x_input, W_k)  # (seq_len, d_model)
+        builder.matmul(x_input, W_q)  # (seq_len, d_model)
+        builder.matmul(x_input, W_k)  # (seq_len, d_model)
         V = builder.matmul(x_input, W_v)  # (seq_len, d_model)
 
         # Compute attention scores for last position
