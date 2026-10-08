@@ -226,7 +226,6 @@ def test_wpt_conformance(context, backend_name, wpt_test_case, wpt_file, operati
     if not graph:
         pytest.skip("Invalid WPT test case (missing graph)")
 
-    wpt_test_case.get("name", "")
     skip_reason = should_skip_test(graph)
     if skip_reason:
         pytest.skip(skip_reason)
