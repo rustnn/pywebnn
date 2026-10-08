@@ -47,7 +47,7 @@ jobs:
       - name: Install linting tools
         run: |
           pip install --upgrade pip
-          pip install black mypy
+          pip install black mypy ruff
 
       - name: Check Python formatting with black
         run: black --check python/ tests/ examples/
@@ -55,4 +55,8 @@ jobs:
 
       - name: Run mypy type checking
         run: mypy python/
+        continue-on-error: true
+
+      - name: Run ruff
+        run: ruff
         continue-on-error: true

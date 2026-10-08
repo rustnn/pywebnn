@@ -7,7 +7,6 @@ and compares the resulting file sizes to demonstrate storage savings.
 """
 
 import tempfile
-import os
 import numpy as np
 from pathlib import Path
 
@@ -122,9 +121,9 @@ def compare_sizes(size_multiplier=1):
     print("=" * 80)
     print("QUANTIZATION FILE SIZE COMPARISON")
     print("=" * 80)
-    print(f"\nModel Configuration:")
+    print("\nModel Configuration:")
     print(f"  Base size: {64 * size_multiplier} x {64 * size_multiplier}")
-    print(f"  Layers: 2 fully-connected layers (matmul + relu + matmul)")
+    print("  Layers: 2 fully-connected layers (matmul + relu + matmul)")
     print(f"  Total parameters: ~{2 * (64 * size_multiplier) ** 2:,}")
     print()
 
@@ -226,7 +225,7 @@ if __name__ == "__main__":
 
     if size_multiplier > 1:
         print(f"\n[INFO] Using size multiplier: {size_multiplier}x")
-        print(f"[INFO] This will create larger models for more realistic comparison\n")
+        print("[INFO] This will create larger models for more realistic comparison\n")
 
     results = compare_sizes(size_multiplier)
 

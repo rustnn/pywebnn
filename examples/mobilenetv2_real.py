@@ -17,7 +17,6 @@ import sys
 import time
 import argparse
 from pathlib import Path
-import urllib.request
 
 try:
     import numpy as np

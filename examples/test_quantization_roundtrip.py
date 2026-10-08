@@ -45,45 +45,45 @@ def test_quantization_roundtrip(quant_dtype="int8", quant_level_name="int8"):
 
     # Quantize the input
     quantized = builder.quantize_linear(x, scale, zero_point)
-    print(f"  Created quantize_linear node")
-    print(f"    Input dtype: float32")
+    print("  Created quantize_linear node")
+    print("    Input dtype: float32")
     print(f"    Output dtype: {quant_dtype}")
 
     # Dequantize for computation
     output = builder.dequantize_linear(quantized, scale, zero_point)
-    print(f"  Created dequantize_linear node")
+    print("  Created dequantize_linear node")
     print(f"    Input dtype: {quant_dtype}")
-    print(f"    Output dtype: float32")
+    print("    Output dtype: float32")
 
     # Build graph
     graph = builder.build({"output": output})
-    print(f"  Graph built successfully")
+    print("  Graph built successfully")
 
     # Step 2: Save with quantized=True marker
     with tempfile.TemporaryDirectory() as tmpdir:
         model_path = Path(tmpdir) / "quantized_model.webnn"
         print(f"\n[STEP 2] Saving quantized graph to {model_path}...")
         graph.save(str(model_path), quantized=True)
-        print(f"  Model saved with quantized=True marker")
+        print("  Model saved with quantized=True marker")
 
         # Verify file was created
         if not model_path.exists():
-            print(f"  [ERROR] Model file not found!")
+            print("  [ERROR] Model file not found!")
             return False
 
         # Read the file to verify quantized marker (JSON format uses "quantized": true)
-        print(f"\n[STEP 3] Verifying saved file contains quantized marker...")
+        print("\n[STEP 3] Verifying saved file contains quantized marker...")
         with open(model_path, 'r') as f:
             content = f.read()
             if '"quantized": true' in content:
-                print(f"  [OK] JSON quantized field found: \"quantized\": true")
+                print("  [OK] JSON quantized field found: \"quantized\": true")
             else:
-                print(f"  [ERROR] Quantized marker NOT found in saved file")
+                print("  [ERROR] Quantized marker NOT found in saved file")
                 print(f"  First 500 chars: {content[:500]}")
                 return False
 
         # Step 4: Run inference to verify it works
-        print(f"\n[STEP 4] Running inference...")
+        print("\n[STEP 4] Running inference...")
         test_input = np.array([[1.0, 2.0, 3.0, 4.0],
                                 [5.0, 6.0, 7.0, 8.0],
                                 [9.0, 10.0, 11.0, 12.0],
@@ -104,11 +104,11 @@ def test_quantization_roundtrip(quant_dtype="int8", quant_level_name="int8"):
         # So y should be close to x but with quantization error
 
         if not np.allclose(output_tensor, test_input, rtol=0.1):
-            print(f"  [WARNING] Output differs from input more than expected")
+            print("  [WARNING] Output differs from input more than expected")
         else:
-            print(f"  [OK] Output matches input (within quantization error)")
+            print("  [OK] Output matches input (within quantization error)")
 
-    print(f"\n[STEP 5] COMPLETE")
+    print("\n[STEP 5] COMPLETE")
     print("=" * 80)
     print()
     return True

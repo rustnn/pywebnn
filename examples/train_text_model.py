@@ -72,8 +72,8 @@ def compute_loss(model, X_batch, y_batch):
 
         # Forward pass (simplified in NumPy)
         # Q, K, V
-        Q = x_embedded @ model.W_q
-        K = x_embedded @ model.W_k
+        x_embedded @ model.W_q
+        x_embedded @ model.W_k
         V = x_embedded @ model.W_v
 
         # Mean pooling approximation
@@ -114,7 +114,7 @@ def train_step(model, X_batch, y_batch, lr=0.05):
     Perform one training step with simple gradient descent.
     Improved to focus on most important parameters.
     """
-    batch_size = X_batch.shape[0]
+    X_batch.shape[0]
     epsilon = 0.0001
 
     # Get original loss

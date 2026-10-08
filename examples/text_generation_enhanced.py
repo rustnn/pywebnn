@@ -19,7 +19,6 @@ Usage:
     python text_generation_enhanced.py --weights model.json --use-kv-cache --tokens 100
 """
 
-import sys
 import argparse
 import json
 from pathlib import Path
@@ -187,8 +186,8 @@ class EnhancedTransformerLM:
         ln_beta = builder.constant(self.ln_beta, list(self.ln_beta.shape), "float32")
 
         # Compute Q, K, V for new token
-        Q = builder.matmul(x_input, W_q)  # (1, d_model)
-        K = builder.matmul(x_input, W_k)  # (1, d_model)
+        builder.matmul(x_input, W_q)  # (1, d_model)
+        builder.matmul(x_input, W_k)  # (1, d_model)
         V = builder.matmul(x_input, W_v)  # (1, d_model)
 
         # Simplified attention: use mean pooling

@@ -107,7 +107,6 @@ def numpy_array_from_test_data(test_data: Dict[str, Any]) -> np.ndarray:
     np_dtype = dtype_map.get(dtype_str, np.float32)
 
     if isinstance(data, (int, float)):
-        total_elements = math.prod(shape) if shape else 1
         fill = _parse_wpt_int64_scalar(data) if dtype_str == "int64" else data
         if dtype_str == "uint64":
             fill = int(data)
