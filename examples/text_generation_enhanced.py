@@ -19,7 +19,6 @@ Usage:
     python text_generation_enhanced.py --weights model.json --use-kv-cache --tokens 100
 """
 
-import sys
 import argparse
 import json
 from pathlib import Path

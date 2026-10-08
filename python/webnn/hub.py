@@ -4,7 +4,6 @@ Simple Hugging Face Hub client for WebNN models.
 Downloads WebNN model files (graph, weights, manifest) from Hugging Face Hub.
 """
 
-import os
 from pathlib import Path
 from urllib.request import urlretrieve
 from urllib.error import HTTPError

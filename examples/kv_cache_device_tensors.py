@@ -133,7 +133,7 @@ def run_with_device_tensors(ctx, graph, num_steps=50):
         past_key_device.write(np.zeros(kv_shape, dtype=np.float32))
         past_value_device.write(np.zeros(kv_shape, dtype=np.float32))
 
-        print(f"  Device tensors created:")
+        print("  Device tensors created:")
         print(f"    KV cache: {past_key_device}")
 
         start = time.time()
@@ -177,7 +177,7 @@ def run_with_device_tensors(ctx, graph, num_steps=50):
 
     except Exception as e:
         print(f"  Device tensor execution failed: {e}")
-        print(f"  Note: This may be expected if device tensors are not fully supported yet")
+        print("  Note: This may be expected if device tensors are not fully supported yet")
         return None
 
 
@@ -198,17 +198,17 @@ def main():
     # Build decoder graph
     print("Building decoder graph...")
     graph = build_decoder_graph(ctx)
-    print(f"  Graph built successfully")
+    print("  Graph built successfully")
     print()
 
     # Configuration
     num_steps = 50
 
-    print(f"Configuration:")
-    print(f"  Batch size: 1")
-    print(f"  Sequence length: 128")
-    print(f"  Hidden dim: 256")
-    print(f"  Num heads: 4")
+    print("Configuration:")
+    print("  Batch size: 1")
+    print("  Sequence length: 128")
+    print("  Hidden dim: 256")
+    print("  Num heads: 4")
     print(f"  Decode steps: {num_steps}")
     print()
     print("-" * 70)
@@ -240,7 +240,7 @@ def main():
         print("Note: Current implementation does host round-trips for both modes.")
         print("True zero-copy execution will show larger speedups on GPU/NPU.")
     else:
-        print(f"Device tensors: Not available")
+        print("Device tensors: Not available")
     print()
     print("This demo shows the API for device tensors.")
     print("Full zero-copy execution coming soon!")

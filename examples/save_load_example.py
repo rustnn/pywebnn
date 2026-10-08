@@ -66,7 +66,7 @@ def main():
     save_path = "example_graph.webnn"
     print(f"\n5. Saving graph to '{save_path}'...")
     graph.save(save_path)
-    print(f"   Graph saved successfully")
+    print("   Graph saved successfully")
 
     # Check file size
     file_size = os.path.getsize(save_path)
@@ -114,7 +114,7 @@ def main():
             print(f"... ({len(content) - 500} more characters)")
 
     # Cleanup
-    print(f"\n11. Cleaning up...")
+    print("\n11. Cleaning up...")
     os.remove(save_path)
     print(f"   Removed '{save_path}'")
 

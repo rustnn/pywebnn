@@ -21,7 +21,6 @@ import time
 from typing import Dict, List, Tuple
 
 # Import conftest fixtures
-from conftest import ml, context, builder
 
 
 def measure_inference_time(context, graph, inputs: Dict, num_runs: int = 5) -> Tuple[float, List[float]]:
@@ -107,7 +106,7 @@ def test_performance_simple_onnx_cpu(ml):
     warm_avg = sum(warm_times) / len(warm_times)
 
     print(f"\n{'='*60}")
-    print(f"ONNX CPU - Simple Model (10 layers)")
+    print("ONNX CPU - Simple Model (10 layers)")
     print(f"{'='*60}")
     print(f"Cold start: {cold_time:.2f}ms")
     print(f"Warm avg:   {warm_avg:.2f}ms")
@@ -135,7 +134,7 @@ def test_performance_simple_coreml(ml):
     warm_avg = sum(warm_times) / len(warm_times)
 
     print(f"\n{'='*60}")
-    print(f"CoreML - Simple Model (10 layers)")
+    print("CoreML - Simple Model (10 layers)")
     print(f"{'='*60}")
     print(f"Cold start: {cold_time:.2f}ms")
     print(f"Warm avg:   {warm_avg:.2f}ms")
@@ -160,7 +159,7 @@ def test_performance_complex_onnx_cpu(ml):
     warm_avg = sum(warm_times) / len(warm_times)
 
     print(f"\n{'='*60}")
-    print(f"ONNX CPU - Complex Model (200 operations)")
+    print("ONNX CPU - Complex Model (200 operations)")
     print(f"{'='*60}")
     print(f"Cold start: {cold_time:.2f}ms")
     print(f"Warm avg:   {warm_avg:.2f}ms")
@@ -190,7 +189,7 @@ def test_performance_complex_coreml(ml):
     speedup = cold_time / warm_avg
 
     print(f"\n{'='*60}")
-    print(f"CoreML - Complex Model (200 operations)")
+    print("CoreML - Complex Model (200 operations)")
     print(f"{'='*60}")
     print(f"Cold start: {cold_time:.2f}ms")
     print(f"Run 2:      {warm_times[0]:.2f}ms")

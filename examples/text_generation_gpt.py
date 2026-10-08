@@ -14,7 +14,6 @@ The model generates one token at a time (like the JavaScript LLM demo),
 using pre-trained or initialized weights.
 """
 
-import sys
 import argparse
 import json
 from pathlib import Path
@@ -252,7 +251,7 @@ def main():
     print("Next-Token Generation with Attention (WebNN)")
     print("=" * 70)
     print(f"Backend: {backend_name}")
-    print(f"Model: vocab=128 (ASCII), d_model=64, max_seq=32")
+    print("Model: vocab=128 (ASCII), d_model=64, max_seq=32")
     print()
 
     # Create WebNN context

@@ -337,16 +337,16 @@ class WebNNEmbedder:
             print(f"[INFO] Downloading model from Hugging Face Hub: {self.model_id}")
             hub = webnn.Hub()
             model_files = hub.download_model(self.model_id)
-            print(f"[OK] Model downloaded")
+            print("[OK] Model downloaded")
 
         # Load graph from files
-        print(f"[INFO] Loading graph...")
+        print("[INFO] Loading graph...")
         graph = webnn.MLGraph.load(
             model_files['graph'],
             manifest_path=model_files['manifest'],
             weights_path=model_files['weights']
         )
-        print(f"[OK] Graph loaded successfully")
+        print("[OK] Graph loaded successfully")
         print(f"    - Operand count: {graph.operand_count}")
         print(f"    - Operation count: {graph.operation_count}")
         print(f"    - Inputs: {graph.get_input_names()}")
@@ -677,7 +677,7 @@ def main():
     except Exception as e:
         error_msg = str(e)
         if "404" in error_msg or "Entry Not Found" in error_msg:
-            print(f"[WARNING] Model not found on Hugging Face Hub")
+            print("[WARNING] Model not found on Hugging Face Hub")
             print(
                 "[INFO] The model may not be uploaded yet to: tarekziade/all-MiniLM-L6-v2-webnn"
             )

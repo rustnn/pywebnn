@@ -35,9 +35,9 @@ def load_imagenet_labels():
         # Download from GitHub if not found
         import urllib.request
         url = "https://raw.githubusercontent.com/pytorch/hub/master/imagenet_classes.txt"
-        print(f"   [DOWNLOAD] ImageNet labels from GitHub...")
+        print("   [DOWNLOAD] ImageNet labels from GitHub...")
         urllib.request.urlretrieve(url, labels_file)
-        print(f"   [OK] Labels downloaded")
+        print("   [OK] Labels downloaded")
 
     with open(labels_file) as f:
         return [line.strip() for line in f]
