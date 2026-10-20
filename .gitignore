@@ -58,3 +58,6 @@ site/
 
 # Maturin
 .cargo/
+
+# Local review checkouts and validation artifacts
+.tmp/

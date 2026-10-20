@@ -31,6 +31,7 @@ def load_imagenet_labels():
     with open(labels_file) as f:
         return [line.strip() for line in f]
 
+
 IMAGENET_CLASSES = load_imagenet_labels()
 
 
@@ -44,26 +45,76 @@ def load_weights(weights_dir="mobilenetv2_weights"):
     weights = {}
 
     # Conv layer indices from WebNN test-data
-    conv_layers = [0, 2, 4, 5, 7, 9, 10, 12, 14, 16, 18, 20, 21, 23, 25, 27,
-                   29, 31, 33, 35, 37, 38, 40, 42, 44, 46, 48, 50, 52, 54,
-                   56, 58, 60, 61, 63, 65, 67, 69, 71, 73, 75, 77, 78, 80,
-                   82, 84, 86, 88, 90, 92, 94, 95]
+    conv_layers = [
+        0,
+        2,
+        4,
+        5,
+        7,
+        9,
+        10,
+        12,
+        14,
+        16,
+        18,
+        20,
+        21,
+        23,
+        25,
+        27,
+        29,
+        31,
+        33,
+        35,
+        37,
+        38,
+        40,
+        42,
+        44,
+        46,
+        48,
+        50,
+        52,
+        54,
+        56,
+        58,
+        60,
+        61,
+        63,
+        65,
+        67,
+        69,
+        71,
+        73,
+        75,
+        77,
+        78,
+        80,
+        82,
+        84,
+        86,
+        88,
+        90,
+        92,
+        94,
+        95,
+    ]
 
     for idx in conv_layers:
         weight_file = weights_path / f"conv_{idx}_weight.npy"
         bias_file = weights_path / f"conv_{idx}_bias.npy"
 
         if weight_file.exists() and bias_file.exists():
-            weights[f'conv_{idx}_weight'] = np.load(weight_file)
-            weights[f'conv_{idx}_bias'] = np.load(bias_file)
+            weights[f"conv_{idx}_weight"] = np.load(weight_file)
+            weights[f"conv_{idx}_bias"] = np.load(bias_file)
 
     # Load classifier
     fc_weight_file = weights_path / "gemm_104_weight.npy"
     fc_bias_file = weights_path / "gemm_104_bias.npy"
 
     if fc_weight_file.exists() and fc_bias_file.exists():
-        weights['fc_weight'] = np.load(fc_weight_file)
-        weights['fc_bias'] = np.load(fc_bias_file)
+        weights["fc_weight"] = np.load(fc_weight_file)
+        weights["fc_bias"] = np.load(fc_bias_file)
 
     print(f"   ✓ Loaded {len(weights)} weight tensors")
     return weights
@@ -90,8 +141,12 @@ def build_complete_mobilenetv2(builder, weights):
 
     # Initial conv block: conv_0 (stride 2)
     print(f"   Layer {layer_idx}: Initial conv 3->32")
-    w = builder.constant(weights['conv_0_weight'], list(weights['conv_0_weight'].shape), "float32")
-    b = builder.constant(weights['conv_0_bias'].reshape(1, -1, 1, 1), [1, 32, 1, 1], "float32")
+    w = builder.constant(
+        weights["conv_0_weight"], list(weights["conv_0_weight"].shape), "float32"
+    )
+    b = builder.constant(
+        weights["conv_0_bias"].reshape(1, -1, 1, 1), [1, 32, 1, 1], "float32"
+    )
     x = builder.conv2d(x, w, [2, 2], None, [1, 1, 1, 1])
     x = builder.add(x, b)
     x = builder.clamp(x, 0.0, 6.0)  # ReLU6
@@ -129,10 +184,14 @@ def build_complete_mobilenetv2(builder, weights):
 
     current_channels = 32
 
-    for block_idx, (expansion, out_channels, block_stride, weight_indices) in enumerate(block_specs):
-        use_residual = (block_stride == 1 and current_channels == out_channels)
+    for block_idx, (expansion, out_channels, block_stride, weight_indices) in enumerate(
+        block_specs
+    ):
+        use_residual = block_stride == 1 and current_channels == out_channels
 
-        print(f"   Block {block_idx}: {current_channels}->{out_channels} (stride={block_stride}, expansion={expansion})")
+        print(
+            f"   Block {block_idx}: {current_channels}->{out_channels} (stride={block_stride}, expansion={expansion})"
+        )
 
         identity = x
 
@@ -142,19 +201,33 @@ def build_complete_mobilenetv2(builder, weights):
             exp_channels = current_channels
 
             # Depthwise conv
-            w = builder.constant(weights[f'conv_{dw_idx}_weight'],
-                               list(weights[f'conv_{dw_idx}_weight'].shape), "float32")
-            b = builder.constant(weights[f'conv_{dw_idx}_bias'].reshape(1, -1, 1, 1),
-                               [1, exp_channels, 1, 1], "float32")
-            x = builder.conv2d(x, w, [block_stride, block_stride], None, [1, 1, 1, 1], exp_channels)
+            w = builder.constant(
+                weights[f"conv_{dw_idx}_weight"],
+                list(weights[f"conv_{dw_idx}_weight"].shape),
+                "float32",
+            )
+            b = builder.constant(
+                weights[f"conv_{dw_idx}_bias"].reshape(1, -1, 1, 1),
+                [1, exp_channels, 1, 1],
+                "float32",
+            )
+            x = builder.conv2d(
+                x, w, [block_stride, block_stride], None, [1, 1, 1, 1], exp_channels
+            )
             x = builder.add(x, b)
             x = builder.clamp(x, 0.0, 6.0)
 
             # Projection
-            w = builder.constant(weights[f'conv_{proj_idx}_weight'],
-                               list(weights[f'conv_{proj_idx}_weight'].shape), "float32")
-            b = builder.constant(weights[f'conv_{proj_idx}_bias'].reshape(1, -1, 1, 1),
-                               [1, out_channels, 1, 1], "float32")
+            w = builder.constant(
+                weights[f"conv_{proj_idx}_weight"],
+                list(weights[f"conv_{proj_idx}_weight"].shape),
+                "float32",
+            )
+            b = builder.constant(
+                weights[f"conv_{proj_idx}_bias"].reshape(1, -1, 1, 1),
+                [1, out_channels, 1, 1],
+                "float32",
+            )
             x = builder.conv2d(x, w, None, None, None)
             x = builder.add(x, b)
 
@@ -164,28 +237,48 @@ def build_complete_mobilenetv2(builder, weights):
             exp_channels = current_channels * expansion
 
             # Expansion
-            w = builder.constant(weights[f'conv_{exp_idx}_weight'],
-                               list(weights[f'conv_{exp_idx}_weight'].shape), "float32")
-            b = builder.constant(weights[f'conv_{exp_idx}_bias'].reshape(1, -1, 1, 1),
-                               [1, exp_channels, 1, 1], "float32")
+            w = builder.constant(
+                weights[f"conv_{exp_idx}_weight"],
+                list(weights[f"conv_{exp_idx}_weight"].shape),
+                "float32",
+            )
+            b = builder.constant(
+                weights[f"conv_{exp_idx}_bias"].reshape(1, -1, 1, 1),
+                [1, exp_channels, 1, 1],
+                "float32",
+            )
             x = builder.conv2d(x, w, None, None, None)
             x = builder.add(x, b)
             x = builder.clamp(x, 0.0, 6.0)
 
             # Depthwise
-            w = builder.constant(weights[f'conv_{dw_idx}_weight'],
-                               list(weights[f'conv_{dw_idx}_weight'].shape), "float32")
-            b = builder.constant(weights[f'conv_{dw_idx}_bias'].reshape(1, -1, 1, 1),
-                               [1, exp_channels, 1, 1], "float32")
-            x = builder.conv2d(x, w, [block_stride, block_stride], None, [1, 1, 1, 1], exp_channels)
+            w = builder.constant(
+                weights[f"conv_{dw_idx}_weight"],
+                list(weights[f"conv_{dw_idx}_weight"].shape),
+                "float32",
+            )
+            b = builder.constant(
+                weights[f"conv_{dw_idx}_bias"].reshape(1, -1, 1, 1),
+                [1, exp_channels, 1, 1],
+                "float32",
+            )
+            x = builder.conv2d(
+                x, w, [block_stride, block_stride], None, [1, 1, 1, 1], exp_channels
+            )
             x = builder.add(x, b)
             x = builder.clamp(x, 0.0, 6.0)
 
             # Projection
-            w = builder.constant(weights[f'conv_{proj_idx}_weight'],
-                               list(weights[f'conv_{proj_idx}_weight'].shape), "float32")
-            b = builder.constant(weights[f'conv_{proj_idx}_bias'].reshape(1, -1, 1, 1),
-                               [1, out_channels, 1, 1], "float32")
+            w = builder.constant(
+                weights[f"conv_{proj_idx}_weight"],
+                list(weights[f"conv_{proj_idx}_weight"].shape),
+                "float32",
+            )
+            b = builder.constant(
+                weights[f"conv_{proj_idx}_bias"].reshape(1, -1, 1, 1),
+                [1, out_channels, 1, 1],
+                "float32",
+            )
             x = builder.conv2d(x, w, None, None, None)
             x = builder.add(x, b)
 
@@ -197,8 +290,12 @@ def build_complete_mobilenetv2(builder, weights):
 
     # Final conv: conv_95 (1x1, 1280 filters)
     print(f"   Layer final: Conv {current_channels}->1280")
-    w = builder.constant(weights['conv_95_weight'], list(weights['conv_95_weight'].shape), "float32")
-    b = builder.constant(weights['conv_95_bias'].reshape(1, -1, 1, 1), [1, 1280, 1, 1], "float32")
+    w = builder.constant(
+        weights["conv_95_weight"], list(weights["conv_95_weight"].shape), "float32"
+    )
+    b = builder.constant(
+        weights["conv_95_bias"].reshape(1, -1, 1, 1), [1, 1280, 1, 1], "float32"
+    )
     x = builder.conv2d(x, w, None, None, None)
     x = builder.add(x, b)
     x = builder.clamp(x, 0.0, 6.0)
@@ -210,13 +307,15 @@ def build_complete_mobilenetv2(builder, weights):
 
     # Classifier
     print("   Layer: Classifier 1280->1000")
-    fc_w = builder.constant(weights['fc_weight'], list(weights['fc_weight'].shape), "float32")
-    fc_b = builder.constant(weights['fc_bias'].reshape(1, -1), [1, 1000], "float32")
+    fc_w = builder.constant(
+        weights["fc_weight"], list(weights["fc_weight"].shape), "float32"
+    )
+    fc_b = builder.constant(weights["fc_bias"].reshape(1, -1), [1, 1000], "float32")
     x = builder.gemm(x, fc_w, b_transpose=True)
     x = builder.add(x, fc_b)
 
     # Softmax
-    output = builder.softmax(x, axis=len(x.shape) - 1)
+    output = builder.softmax(x, axis=1)
 
     print("   ✓ Complete MobileNetV2 graph built!")
     return output
@@ -224,7 +323,7 @@ def build_complete_mobilenetv2(builder, weights):
 
 def preprocess_image(image_path):
     """Preprocess image for MobileNetV2."""
-    img = Image.open(image_path).convert('RGB')
+    img = Image.open(image_path).convert("RGB")
     img = img.resize((224, 224), Image.Resampling.BILINEAR)
 
     img_array = np.array(img, dtype=np.float32) / 255.0
@@ -257,7 +356,11 @@ def main():
     elif args.backend == "gpu":
         accelerated, power, backend_name = True, "high-performance", "ONNX GPU"
     else:
-        accelerated, power, backend_name = True, "high-performance", "CoreML (Neural Engine)"
+        accelerated, power, backend_name = (
+            True,
+            "high-performance",
+            "CoreML (Neural Engine)",
+        )
 
     print("=" * 70)
     print("Complete MobileNetV2 Image Classification with WebNN")
@@ -284,7 +387,11 @@ def main():
     # Create context
     print("Creating WebNN context...")
     ml = webnn.ML()
-    context = ml.create_context(power_preference=power, accelerated=accelerated)
+    context = ml.create_context(
+        power_preference=power,
+        accelerated=accelerated,
+        backend="coreml" if args.backend == "coreml" else "onnx",
+    )
     print(f"   ✓ Context created (accelerated={context.accelerated})")
     print()
 
@@ -292,6 +399,10 @@ def main():
     start_time = time.time()
     builder = context.create_graph_builder()
     output = build_complete_mobilenetv2(builder, weights)
+    source = context.create_tensor([1, 3, 224, 224], "float32", writable=True)
+    target = context.create_tensor(
+        builder.operand_shape(output), builder.operand_data_type(output), readable=True
+    )
     graph = builder.build({"output": output})
     build_time = (time.time() - start_time) * 1000
     print(f"   Graph build time: {build_time:.2f}ms")
@@ -300,7 +411,9 @@ def main():
     # Run inference
     print("Running inference...")
     start_time = time.time()
-    results = context.compute(graph, {"input": input_data})
+    context.write_tensor(source, input_data)
+    context.dispatch(graph, {"input": source}, {"output": target})
+    results = {"output": context.read_tensor(target)}
     inf_time = (time.time() - start_time) * 1000
     print(f"   ✓ Inference complete ({inf_time:.2f}ms)")
     print()

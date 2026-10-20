@@ -26,6 +26,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 import webnn
+from model_files import model_directory, max_shape
 
 
 # Load ImageNet labels
@@ -34,7 +35,10 @@ def load_imagenet_labels():
     if not labels_file.exists():
         # Download from GitHub if not found
         import urllib.request
-        url = "https://raw.githubusercontent.com/pytorch/hub/master/imagenet_classes.txt"
+
+        url = (
+            "https://raw.githubusercontent.com/pytorch/hub/master/imagenet_classes.txt"
+        )
         print(f"   [DOWNLOAD] ImageNet labels from GitHub...")
         urllib.request.urlretrieve(url, labels_file)
         print(f"   [OK] Labels downloaded")
@@ -48,7 +52,7 @@ IMAGENET_CLASSES = load_imagenet_labels()
 
 def preprocess_image(image_path):
     """Preprocess image for MobileNetV2."""
-    img = Image.open(image_path).convert('RGB')
+    img = Image.open(image_path).convert("RGB")
     img = img.resize((224, 224), Image.Resampling.BILINEAR)
 
     img_array = np.array(img, dtype=np.float32) / 255.0
@@ -74,17 +78,15 @@ def main():
         "--backend",
         choices=["cpu", "gpu", "coreml"],
         default="cpu",
-        help="Backend to use for inference"
+        help="Backend to use for inference",
     )
     parser.add_argument(
         "--model-id",
         default="tarekziade/mobilenet-webnn",
-        help="Hugging Face model ID (default: tarekziade/mobilenet-webnn)"
+        help="Hugging Face model ID (default: tarekziade/mobilenet-webnn)",
     )
     parser.add_argument(
-        "--force-download",
-        action="store_true",
-        help="Force re-download even if cached"
+        "--force-download", action="store_true", help="Force re-download even if cached"
     )
     args = parser.parse_args()
 
@@ -100,7 +102,11 @@ def main():
     elif args.backend == "gpu":
         accelerated, power, backend_name = True, "high-performance", "ONNX GPU"
     else:
-        accelerated, power, backend_name = True, "high-performance", "CoreML (Neural Engine)"
+        accelerated, power, backend_name = (
+            True,
+            "high-performance",
+            "CoreML (Neural Engine)",
+        )
 
     print("=" * 70)
     print("MobileNetV2 Image Classification (Hugging Face Hub)")
@@ -113,30 +119,9 @@ def main():
     # Download model from Hub
     print("Downloading model from Hugging Face Hub...")
     start_time = time.time()
-    hub = webnn.Hub()
-    model_files = hub.download_model(args.model_id, force=args.force_download)
+    directory = model_directory(args.model_id, force=args.force_download)
     download_time = (time.time() - start_time) * 1000
-
-    print(f"   [OK] Model downloaded ({download_time:.2f}ms)")
-    print(f"   - Graph: {Path(model_files['graph']).name}")
-    print()
-
-    # Load graph from downloaded files
-    print("Loading graph from downloaded files...")
-    start_time = time.time()
-    graph = webnn.MLGraph.load(
-        model_files['graph'],
-        manifest_path=model_files['manifest'],
-        weights_path=model_files['weights']
-    )
-    load_time = (time.time() - start_time) * 1000
-
-    print(f"   [OK] Graph loaded successfully ({load_time:.2f}ms)")
-    print(f"   - Operand count: {graph.operand_count}")
-    print(f"   - Operation count: {graph.operation_count}")
-    print(f"   - Inputs: {graph.get_input_names()}")
-    print(f"   - Outputs: {graph.get_output_names()}")
-    print()
+    print(f"   [OK] Model files: {directory} ({download_time:.2f}ms)")
 
     # Preprocess image
     print("Preprocessing image...")
@@ -149,14 +134,31 @@ def main():
     # Create context
     print("Creating WebNN context...")
     ml = webnn.ML()
-    context = ml.create_context(power_preference=power, accelerated=accelerated)
+    context = ml.create_context(
+        power_preference=power,
+        accelerated=accelerated,
+        backend="coreml" if args.backend == "coreml" else "onnx",
+    )
+    start_time = time.time()
+    graph = context.load_graph(str(directory / "model.webnn"))
+    load_time = (time.time() - start_time) * 1000
+    sources = {
+        name: context.create_tensor(max_shape(spec), spec["data_type"], writable=True)
+        for name, spec in graph.input_descriptors.items()
+    }
+    targets = {
+        name: context.create_tensor(max_shape(spec), spec["data_type"], readable=True)
+        for name, spec in graph.output_descriptors.items()
+    }
     print(f"   [OK] Context created (accelerated={context.accelerated})")
     print()
 
     # Run inference
     print("Running inference...")
     start_time = time.time()
-    results = context.compute(graph, {"input": input_data})
+    context.write_tensor(sources["input"], input_data)
+    context.dispatch(graph, sources, targets)
+    results = {name: context.read_tensor(tensor) for name, tensor in targets.items()}
     inf_time = (time.time() - start_time) * 1000
     print(f"   [OK] Inference complete ({inf_time:.2f}ms)")
     print()
@@ -179,21 +181,13 @@ def main():
     print(f"  - Graph Load:     {load_time:.2f}ms")
     print(f"  - Preprocessing:  {prep_time:.2f}ms")
     print(f"  - Inference:      {inf_time:.2f}ms")
-    print(f"  - Total Time:     {download_time + load_time + prep_time + inf_time:.2f}ms")
+    print(
+        f"  - Total Time:     {download_time + load_time + prep_time + inf_time:.2f}ms"
+    )
     print("=" * 70)
     print()
 
-    # Show cache info
-    cached_models = hub.list_cached_models()
-    if cached_models:
-        print("[INFO] Cached models:")
-        for model in cached_models:
-            print(f"   - {model}")
-
-    print()
-    print("[OK] MobileNetV2 classification complete!")
-    print(f"     Model loaded from Hugging Face Hub: {args.model_id}")
-    print(f"     Files cached at: {hub.cache_dir}")
+    print(f"[OK] Model files cached at: {directory}")
 
 
 if __name__ == "__main__":

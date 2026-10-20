@@ -34,11 +34,18 @@ except ImportError:
 
 import webnn
 
-
 # ImageNet class labels (1000 classes)
 IMAGENET_CLASSES = [
-    "tench", "goldfish", "great white shark", "tiger shark", "hammerhead",
-    "electric ray", "stingray", "cock", "hen", "ostrich",
+    "tench",
+    "goldfish",
+    "great white shark",
+    "tiger shark",
+    "hammerhead",
+    "electric ray",
+    "stingray",
+    "cock",
+    "hen",
+    "ostrich",
     # ... (truncated for brevity - full list would have 1000 classes)
     # In a real implementation, load from a JSON file
 ]
@@ -56,7 +63,7 @@ def load_and_preprocess_image(image_path, target_size=(224, 224)):
         Preprocessed image as numpy array with shape (1, 3, 224, 224)
     """
     # Load image
-    img = Image.open(image_path).convert('RGB')
+    img = Image.open(image_path).convert("RGB")
 
     # Resize to target size
     img = img.resize((target_size[1], target_size[0]), Image.Resampling.BILINEAR)
@@ -101,15 +108,13 @@ def build_simple_classifier(builder, num_classes=1000):
     # Initial convolution: 3 -> 32 channels
     # In a real model, these weights would be loaded from a pretrained model
     conv1_weights = builder.constant(
-        np.random.randn(32, 3, 3, 3).astype(np.float32) * 0.01,
-        [32, 3, 3, 3],
-        "float32"
+        np.random.randn(32, 3, 3, 3).astype(np.float32) * 0.01, [32, 3, 3, 3], "float32"
     )
     conv1 = builder.conv2d(
         input_tensor,
         conv1_weights,
         [2, 2],  # strides
-        None,    # dilations
+        None,  # dilations
         [1, 1, 1, 1],  # pads
     )
     # Use clamp for ReLU6 activation (commonly used in MobileNet)
@@ -117,17 +122,15 @@ def build_simple_classifier(builder, num_classes=1000):
 
     # Depthwise convolution: 32 -> 32 (groups=32)
     dw_weights = builder.constant(
-        np.random.randn(32, 1, 3, 3).astype(np.float32) * 0.01,
-        [32, 1, 3, 3],
-        "float32"
+        np.random.randn(32, 1, 3, 3).astype(np.float32) * 0.01, [32, 1, 3, 3], "float32"
     )
     dw_conv = builder.conv2d(
         conv1,
         dw_weights,
-        None,    # strides
-        None,    # dilations
+        None,  # strides
+        None,  # dilations
         [1, 1, 1, 1],  # pads
-        32,      # groups (depthwise convolution)
+        32,  # groups (depthwise convolution)
     )
     # ReLU6 activation
     dw_conv = builder.clamp(dw_conv, min_value=0.0, max_value=6.0)
@@ -136,7 +139,7 @@ def build_simple_classifier(builder, num_classes=1000):
     pw_weights = builder.constant(
         np.random.randn(64, 32, 1, 1).astype(np.float32) * 0.01,
         [64, 32, 1, 1],
-        "float32"
+        "float32",
     )
     pw_conv = builder.conv2d(dw_conv, pw_weights, None, None, None, None)
     # ReLU6 activation
@@ -153,13 +156,13 @@ def build_simple_classifier(builder, num_classes=1000):
     fc_weights = builder.constant(
         np.random.randn(num_classes, 64).astype(np.float32) * 0.01,
         [num_classes, 64],
-        "float32"
+        "float32",
     )
     # Use gemm with b_transpose=True instead of matmul(x, transpose(weights))
     logits = builder.gemm(flattened, fc_weights, b_transpose=True)
 
     # Softmax for class probabilities
-    output = builder.softmax(logits, axis=len(logits.shape) - 1)
+    output = builder.softmax(logits, axis=1)
 
     return output
 
@@ -179,10 +182,7 @@ def get_top_predictions(probabilities, top_k=5):
     top_indices = np.argsort(probabilities)[-top_k:][::-1]
 
     # Create list of (index, probability) tuples
-    top_predictions = [
-        (int(idx), float(probabilities[idx]))
-        for idx in top_indices
-    ]
+    top_predictions = [(int(idx), float(probabilities[idx])) for idx in top_indices]
 
     return top_predictions
 
@@ -235,8 +235,14 @@ def main():
     # Create WebNN context
     print("2. Creating WebNN context...")
     ml = webnn.ML()
-    context = ml.create_context(power_preference=power_preference, accelerated=accelerated)
-    print(f"   ✓ Context created (accelerated={context.accelerated}, power={context.power_preference})")
+    context = ml.create_context(
+        power_preference=power_preference,
+        accelerated=accelerated,
+        backend="coreml" if args.backend == "coreml" else "onnx",
+    )
+    print(
+        f"   ✓ Context created (accelerated={context.accelerated}, power={power_preference})"
+    )
     print()
 
     # Build graph
@@ -244,6 +250,10 @@ def main():
     start_time = time.time()
     builder = context.create_graph_builder()
     output = build_simple_classifier(builder, num_classes=1000)
+    source = context.create_tensor([1, 3, 224, 224], "float32", writable=True)
+    target = context.create_tensor(
+        builder.operand_shape(output), builder.operand_data_type(output), readable=True
+    )
     graph = builder.build({"output": output})
     build_time = (time.time() - start_time) * 1000
     print(f"   ✓ Graph built ({build_time:.2f}ms)")
@@ -252,7 +262,9 @@ def main():
     # Run inference
     print("4. Running inference...")
     start_time = time.time()
-    results = context.compute(graph, {"input": input_data})
+    context.write_tensor(source, input_data)
+    context.dispatch(graph, {"input": source}, {"output": target})
+    results = {"output": context.read_tensor(target)}
     inference_time = (time.time() - start_time) * 1000
     print(f"   ✓ Inference complete ({inference_time:.2f}ms)")
     print()
@@ -265,7 +277,11 @@ def main():
     print("5. Top 5 Predictions:")
     print("-" * 60)
     for i, (class_idx, prob) in enumerate(top_predictions, 1):
-        class_name = IMAGENET_CLASSES[class_idx] if class_idx < len(IMAGENET_CLASSES) else f"Class {class_idx}"
+        class_name = (
+            IMAGENET_CLASSES[class_idx]
+            if class_idx < len(IMAGENET_CLASSES)
+            else f"Class {class_idx}"
+        )
         print(f"   {i}. {class_name:30s} {prob*100:5.2f}%")
     print()
 

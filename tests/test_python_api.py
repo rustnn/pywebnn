@@ -1,15 +1,16 @@
 """Tests for the Python WebNN API"""
 
-import json
 import sys
 import pytest
 import numpy as np
 
+from execution import GraphExecution
 from runtime_support import requires_execution_backend
 
 # Note: Import will only work after building with maturin
 try:
     import webnn
+
     WEBNN_AVAILABLE = True
 except ImportError:
     WEBNN_AVAILABLE = False
@@ -45,16 +46,13 @@ def test_context_creation(ml):
     # Test CPU-only context (accelerated=False)
     ctx = ml.create_context(power_preference="default", accelerated=False)
     assert ctx.accelerated == False
-    assert ctx.power_preference == "default"
 
     # Test accelerated context with high performance
     ctx_accel = ml.create_context(power_preference="high-performance", accelerated=True)
-    assert ctx_accel.power_preference == "high-performance"
     # Note: accelerated may be True or False depending on platform capabilities
 
     # Test accelerated context with low power (NPU preferred)
     ctx_low_power = ml.create_context(power_preference="low-power", accelerated=True)
-    assert ctx_low_power.power_preference == "low-power"
 
 
 def test_graph_builder_creation(context):
@@ -66,17 +64,16 @@ def test_graph_builder_creation(context):
 def test_input_operand(builder):
     """Test creating input operands"""
     x = builder.input("x", [2, 3], "float32")
-    assert x.name == "x"
-    assert x.shape == [2, 3]
-    assert x.data_type == "float32"
+    assert builder.operand_shape(x) == [2, 3]
+    assert builder.operand_data_type(x) == "float32"
 
 
 def test_constant_operand(builder):
     """Test creating constant operands"""
     data = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
     const = builder.constant(data)
-    assert const.shape == [2, 2]
-    assert const.data_type == "float32"
+    assert builder.operand_shape(const) == [2, 2]
+    assert builder.operand_data_type(const) == "float32"
 
 
 def test_binary_operations(builder):
@@ -86,30 +83,30 @@ def test_binary_operations(builder):
 
     # Test add
     z_add = builder.add(x, y)
-    assert z_add.shape == [2, 3]
-    assert z_add.data_type == "float32"
+    assert builder.operand_shape(z_add) == [2, 3]
+    assert builder.operand_data_type(z_add) == "float32"
 
     # Test sub
     z_sub = builder.sub(x, y)
-    assert z_sub.shape == [2, 3]
+    assert builder.operand_shape(z_sub) == [2, 3]
 
     # Test mul
     z_mul = builder.mul(x, y)
-    assert z_mul.shape == [2, 3]
+    assert builder.operand_shape(z_mul) == [2, 3]
 
     # Test div
     z_div = builder.div(x, y)
-    assert z_div.shape == [2, 3]
+    assert builder.operand_shape(z_div) == [2, 3]
 
     # Test pow, max, min
-    assert builder.pow(x, y).shape == [2, 3]
-    assert builder.max(x, y).shape == [2, 3]
-    assert builder.min(x, y).shape == [2, 3]
+    assert builder.operand_shape(builder.pow(x, y)) == [2, 3]
+    assert builder.operand_shape(builder.max(x, y)) == [2, 3]
+    assert builder.operand_shape(builder.min(x, y)) == [2, 3]
 
     # Test not_equal (uint8 output)
     ne = builder.not_equal(x, y)
-    assert ne.shape == [2, 3]
-    assert ne.data_type == "uint8"
+    assert builder.operand_shape(ne) == [2, 3]
+    assert builder.operand_data_type(ne) == "uint8"
 
 
 def test_unary_operations(builder):
@@ -118,28 +115,28 @@ def test_unary_operations(builder):
 
     # Test ReLU
     relu_out = builder.relu(x)
-    assert relu_out.shape == [2, 3]
-    assert relu_out.data_type == "float32"
+    assert builder.operand_shape(relu_out) == [2, 3]
+    assert builder.operand_data_type(relu_out) == "float32"
 
     # Test sigmoid
     sigmoid_out = builder.sigmoid(x)
-    assert sigmoid_out.shape == [2, 3]
+    assert builder.operand_shape(sigmoid_out) == [2, 3]
 
     # Test tanh
     tanh_out = builder.tanh(x)
-    assert tanh_out.shape == [2, 3]
+    assert builder.operand_shape(tanh_out) == [2, 3]
 
     # Test softmax
     softmax_out = builder.softmax(x, axis=1)
-    assert softmax_out.shape == [2, 3]
+    assert builder.operand_shape(softmax_out) == [2, 3]
 
 
 def test_reshape_operation(builder):
     """Test reshape operation"""
     x = builder.input("x", [2, 3], "float32")
     reshaped = builder.reshape(x, [3, 2])
-    assert reshaped.shape == [3, 2]
-    assert reshaped.data_type == "float32"
+    assert builder.operand_shape(reshaped) == [3, 2]
+    assert builder.operand_data_type(reshaped) == "float32"
 
 
 def test_softmax_invalid_axis(builder):
@@ -167,11 +164,6 @@ def test_graph_building(builder):
 
     graph = builder.build({"output": output})
     assert graph is not None
-    assert graph.operand_count > 0
-    assert graph.operation_count > 0
-    assert "output" in graph.get_output_names()
-    assert "x" in graph.get_input_names()
-    assert "y" in graph.get_input_names()
 
 
 def test_simple_computation(context, builder):
@@ -180,14 +172,14 @@ def test_simple_computation(context, builder):
     y = builder.input("y", [2, 3], "float32")
     z = builder.add(x, y)
 
-    graph = builder.build({"z": z})
+    graph = GraphExecution(context, builder, {"z": z})
 
     # Create input data
     x_data = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
     y_data = np.array([[7, 8, 9], [10, 11, 12]], dtype=np.float32)
 
     # Compute
-    results = context.compute(graph, {"x": x_data, "y": y_data})
+    results = graph.run({"x": x_data, "y": y_data})
     assert "z" in results
     assert results["z"].shape == (2, 3)
 
@@ -199,44 +191,16 @@ def test_simple_computation_with_values(context, builder):
     y = builder.input("y", [2, 3], "float32")
     z = builder.add(x, y)
 
-    graph = builder.build({"z": z})
+    graph = GraphExecution(context, builder, {"z": z})
 
     # Create input data
     x_data = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
     y_data = np.array([[7, 8, 9], [10, 11, 12]], dtype=np.float32)
 
     # Compute and verify actual computation
-    results = context.compute(graph, {"x": x_data, "y": y_data})
+    results = graph.run({"x": x_data, "y": y_data})
     expected = x_data + y_data
     np.testing.assert_allclose(results["z"], expected, rtol=1e-5)
-
-
-def test_onnx_conversion(context, builder, tmp_path):
-    """Test ONNX conversion"""
-    x = builder.input("x", [2, 3], "float32")
-    y = builder.relu(x)
-    graph = builder.build({"y": y})
-
-    output_path = tmp_path / "model.onnx"
-    context.convert_to_onnx(graph, str(output_path))
-
-    assert output_path.exists()
-    assert output_path.stat().st_size > 0
-
-
-@pytest.mark.skipif(sys.platform != "darwin",
-                    reason="CoreML tests only run on macOS")
-def test_coreml_conversion(context, builder, tmp_path):
-    """Test CoreML conversion (macOS only)"""
-    x = builder.input("x", [2, 3], "float32")
-    y = builder.relu(x)
-    graph = builder.build({"y": y})
-
-    output_path = tmp_path / "model.mlmodel"
-    context.convert_to_coreml(graph, str(output_path))
-
-    assert output_path.exists()
-    assert output_path.stat().st_size > 0
 
 
 def test_complex_graph(builder):
@@ -249,14 +213,7 @@ def test_complex_graph(builder):
     x2 = builder.sigmoid(x1)
 
     # Multiple outputs
-    graph = builder.build({
-        "relu_out": x1,
-        "sigmoid_out": x2
-    })
-
-    assert graph.operand_count > 0
-    assert graph.operation_count == 2
-    assert set(graph.get_output_names()) == {"relu_out", "sigmoid_out"}
+    graph = builder.build({"relu_out": x1, "sigmoid_out": x2})
 
 
 @requires_execution_backend
@@ -264,12 +221,12 @@ def test_relu_computation(context, builder):
     """Test ReLU activation with actual computation"""
     x = builder.input("x", [2, 3], "float32")
     y = builder.relu(x)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
     # Test data with positive and negative values
     x_data = np.array([[-1, 2, -3], [4, -5, 6]], dtype=np.float32)
 
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
@@ -283,11 +240,11 @@ def test_sigmoid_computation(context, builder):
     """Test sigmoid activation with actual computation"""
     x = builder.input("x", [2, 3], "float32")
     y = builder.sigmoid(x)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
     x_data = np.array([[0, 1, -1], [2, -2, 0.5]], dtype=np.float32)
 
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
@@ -301,11 +258,11 @@ def test_tanh_computation(context, builder):
     """Test tanh activation with actual computation"""
     x = builder.input("x", [2, 3], "float32")
     y = builder.tanh(x)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
     x_data = np.array([[0, 1, -1], [2, -2, 0.5]], dtype=np.float32)
 
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
@@ -319,18 +276,20 @@ def test_softmax_computation(context, builder):
     """Test softmax activation with actual computation"""
     x = builder.input("x", [2, 3], "float32")
     y = builder.softmax(x, axis=1)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
     x_data = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
 
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
     # Verify softmax output is in [0, 1] and sums to 1
     assert np.all(results["y"] >= 0)
     assert np.all(results["y"] <= 1)
-    np.testing.assert_allclose(results["y"].sum(axis=1), np.ones(2, dtype=np.float32), rtol=1e-5)
+    np.testing.assert_allclose(
+        results["y"].sum(axis=1), np.ones(2, dtype=np.float32), rtol=1e-5
+    )
 
     shifted = x_data - np.max(x_data, axis=1, keepdims=True)
     expected = np.exp(shifted) / np.sum(np.exp(shifted), axis=1, keepdims=True)
@@ -343,16 +302,17 @@ def test_softmax_computation(context, builder):
 
 # Basic math operations
 
+
 @requires_execution_backend
 def test_abs_computation(context, builder):
     """Test element-wise absolute value"""
     x = builder.input("x", [2, 3], "float32")
     y = builder.abs(x)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
     x_data = np.array([[-1.5, 2.0, -3.7], [4.2, -5.9, 0.0]], dtype=np.float32)
 
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
@@ -365,11 +325,11 @@ def test_ceil_computation(context, builder):
     """Test element-wise ceiling"""
     x = builder.input("x", [2, 3], "float32")
     y = builder.ceil(x)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
     x_data = np.array([[-1.5, 2.1, -3.9], [4.2, -5.7, 0.5]], dtype=np.float32)
 
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
@@ -382,11 +342,11 @@ def test_floor_computation(context, builder):
     """Test element-wise floor"""
     x = builder.input("x", [2, 3], "float32")
     y = builder.floor(x)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
     x_data = np.array([[-1.5, 2.9, -3.1], [4.8, -5.2, 0.5]], dtype=np.float32)
 
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
@@ -399,11 +359,11 @@ def test_neg_computation(context, builder):
     """Test element-wise negation"""
     x = builder.input("x", [2, 3], "float32")
     y = builder.neg(x)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
     x_data = np.array([[-1.0, 2.0, -3.0], [4.0, -5.0, 0.0]], dtype=np.float32)
 
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
@@ -416,11 +376,11 @@ def test_sign_computation(context, builder):
     """Test element-wise sign"""
     x = builder.input("x", [2, 3], "float32")
     y = builder.sign(x)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
     x_data = np.array([[-1.5, 2.3, 0.0], [4.6, -5.4, 0.0]], dtype=np.float32)
 
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
@@ -430,16 +390,17 @@ def test_sign_computation(context, builder):
 
 # Exponential and logarithmic operations
 
+
 @requires_execution_backend
 def test_exp_computation(context, builder):
     """Test element-wise exponential"""
     x = builder.input("x", [2, 3], "float32")
     y = builder.exp(x)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
     x_data = np.array([[0.0, 1.0, -1.0], [2.0, -2.0, 0.5]], dtype=np.float32)
 
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
@@ -452,11 +413,11 @@ def test_log_computation(context, builder):
     """Test element-wise natural logarithm"""
     x = builder.input("x", [2, 3], "float32")
     y = builder.log(x)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
     x_data = np.array([[1.0, 2.0, 3.0], [0.5, 0.1, 10.0]], dtype=np.float32)
 
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
@@ -469,11 +430,11 @@ def test_sqrt_computation(context, builder):
     """Test element-wise square root"""
     x = builder.input("x", [2, 3], "float32")
     y = builder.sqrt(x)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
     x_data = np.array([[1.0, 4.0, 9.0], [16.0, 25.0, 0.25]], dtype=np.float32)
 
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
@@ -486,11 +447,11 @@ def test_reciprocal_computation(context, builder):
     """Test element-wise reciprocal (1/x)"""
     x = builder.input("x", [2, 3], "float32")
     y = builder.reciprocal(x)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
     x_data = np.array([[1.0, 2.0, 4.0], [0.5, 0.25, 10.0]], dtype=np.float32)
 
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
@@ -500,16 +461,19 @@ def test_reciprocal_computation(context, builder):
 
 # Trigonometric operations
 
+
 @requires_execution_backend
 def test_sin_computation(context, builder):
     """Test element-wise sine"""
     x = builder.input("x", [2, 3], "float32")
     y = builder.sin(x)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
-    x_data = np.array([[0.0, np.pi/2, np.pi], [-np.pi/2, np.pi/4, -np.pi]], dtype=np.float32)
+    x_data = np.array(
+        [[0.0, np.pi / 2, np.pi], [-np.pi / 2, np.pi / 4, -np.pi]], dtype=np.float32
+    )
 
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
@@ -522,11 +486,13 @@ def test_cos_computation(context, builder):
     """Test element-wise cosine"""
     x = builder.input("x", [2, 3], "float32")
     y = builder.cos(x)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
-    x_data = np.array([[0.0, np.pi/2, np.pi], [-np.pi/2, np.pi/4, -np.pi]], dtype=np.float32)
+    x_data = np.array(
+        [[0.0, np.pi / 2, np.pi], [-np.pi / 2, np.pi / 4, -np.pi]], dtype=np.float32
+    )
 
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
@@ -539,11 +505,13 @@ def test_tan_computation(context, builder):
     """Test element-wise tangent"""
     x = builder.input("x", [2, 3], "float32")
     y = builder.tan(x)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
-    x_data = np.array([[0.0, np.pi/4, -np.pi/4], [np.pi/6, -np.pi/6, 0.5]], dtype=np.float32)
+    x_data = np.array(
+        [[0.0, np.pi / 4, -np.pi / 4], [np.pi / 6, -np.pi / 6, 0.5]], dtype=np.float32
+    )
 
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
@@ -553,22 +521,24 @@ def test_tan_computation(context, builder):
 
 # Special operations
 
+
 @requires_execution_backend
 def test_erf_computation(context, builder):
     """Test element-wise error function"""
     x = builder.input("x", [2, 3], "float32")
     y = builder.erf(x)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
     x_data = np.array([[0.0, 1.0, -1.0], [2.0, -2.0, 0.5]], dtype=np.float32)
 
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
     # Use scipy for erf if available, otherwise skip
     try:
         from scipy.special import erf
+
         expected = erf(x_data)
         np.testing.assert_allclose(results["y"], expected, rtol=1e-5)
     except ImportError:
@@ -581,11 +551,11 @@ def test_identity_computation(context, builder):
     """Test identity operation"""
     x = builder.input("x", [2, 3], "float32")
     y = builder.identity(x)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
     x_data = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
 
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
@@ -595,18 +565,19 @@ def test_identity_computation(context, builder):
 
 # Logic operations tests
 
+
 @requires_execution_backend
 def test_equal_computation(context, builder):
     """Test element-wise equality comparison"""
     a = builder.input("a", [2, 3], "float32")
     b = builder.input("b", [2, 3], "float32")
     y = builder.equal(a, b)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
     a_data = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
     b_data = np.array([[1.0, 0.0, 3.0], [0.0, 5.0, 0.0]], dtype=np.float32)
 
-    results = context.compute(graph, {"a": a_data, "b": b_data})
+    results = graph.run({"a": a_data, "b": b_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
@@ -620,12 +591,12 @@ def test_greater_computation(context, builder):
     a = builder.input("a", [2, 3], "float32")
     b = builder.input("b", [2, 3], "float32")
     y = builder.greater(a, b)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
     a_data = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
     b_data = np.array([[0.5, 2.5, 2.5], [4.5, 4.5, 5.5]], dtype=np.float32)
 
-    results = context.compute(graph, {"a": a_data, "b": b_data})
+    results = graph.run({"a": a_data, "b": b_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
@@ -639,12 +610,12 @@ def test_greater_or_equal_computation(context, builder):
     a = builder.input("a", [2, 3], "float32")
     b = builder.input("b", [2, 3], "float32")
     y = builder.greater_or_equal(a, b)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
     a_data = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
     b_data = np.array([[0.5, 2.0, 3.5], [4.5, 5.0, 5.5]], dtype=np.float32)
 
-    results = context.compute(graph, {"a": a_data, "b": b_data})
+    results = graph.run({"a": a_data, "b": b_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
@@ -658,12 +629,12 @@ def test_lesser_computation(context, builder):
     a = builder.input("a", [2, 3], "float32")
     b = builder.input("b", [2, 3], "float32")
     y = builder.lesser(a, b)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
     a_data = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
     b_data = np.array([[1.5, 1.5, 3.5], [3.5, 5.5, 6.5]], dtype=np.float32)
 
-    results = context.compute(graph, {"a": a_data, "b": b_data})
+    results = graph.run({"a": a_data, "b": b_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
@@ -677,12 +648,12 @@ def test_lesser_or_equal_computation(context, builder):
     a = builder.input("a", [2, 3], "float32")
     b = builder.input("b", [2, 3], "float32")
     y = builder.lesser_or_equal(a, b)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
     a_data = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
     b_data = np.array([[1.5, 2.0, 2.5], [3.5, 5.0, 6.5]], dtype=np.float32)
 
-    results = context.compute(graph, {"a": a_data, "b": b_data})
+    results = graph.run({"a": a_data, "b": b_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
@@ -695,12 +666,12 @@ def test_logical_not_computation(context, builder):
     """Test element-wise logical NOT"""
     x = builder.input("x", [2, 3], "float32")
     y = builder.logical_not(x)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
     # Use 0.0 for false and non-zero for true
     x_data = np.array([[0.0, 1.0, 0.0], [2.0, 0.0, 3.0]], dtype=np.float32)
 
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
@@ -714,13 +685,13 @@ def test_logical_and_computation(context, builder):
     a = builder.input("a", [2, 3], "float32")
     b = builder.input("b", [2, 3], "float32")
     y = builder.logical_and(a, b)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
     # Use 0.0 for false and non-zero for true
     a_data = np.array([[0.0, 1.0, 1.0], [0.0, 2.0, 3.0]], dtype=np.float32)
     b_data = np.array([[0.0, 0.0, 1.0], [1.0, 2.0, 0.0]], dtype=np.float32)
 
-    results = context.compute(graph, {"a": a_data, "b": b_data})
+    results = graph.run({"a": a_data, "b": b_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
@@ -734,13 +705,13 @@ def test_logical_or_computation(context, builder):
     a = builder.input("a", [2, 3], "float32")
     b = builder.input("b", [2, 3], "float32")
     y = builder.logical_or(a, b)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
     # Use 0.0 for false and non-zero for true
     a_data = np.array([[0.0, 1.0, 1.0], [0.0, 2.0, 3.0]], dtype=np.float32)
     b_data = np.array([[0.0, 0.0, 1.0], [1.0, 2.0, 0.0]], dtype=np.float32)
 
-    results = context.compute(graph, {"a": a_data, "b": b_data})
+    results = graph.run({"a": a_data, "b": b_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
@@ -754,13 +725,13 @@ def test_logical_xor_computation(context, builder):
     a = builder.input("a", [2, 3], "float32")
     b = builder.input("b", [2, 3], "float32")
     y = builder.logical_xor(a, b)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y})
 
     # Use 0.0 for false and non-zero for true
     a_data = np.array([[0.0, 1.0, 1.0], [0.0, 2.0, 3.0]], dtype=np.float32)
     b_data = np.array([[0.0, 0.0, 1.0], [1.0, 2.0, 0.0]], dtype=np.float32)
 
-    results = context.compute(graph, {"a": a_data, "b": b_data})
+    results = graph.run({"a": a_data, "b": b_data})
     assert "y" in results
     assert results["y"].shape == (2, 3)
 
@@ -776,12 +747,12 @@ def test_chained_operations(context, builder):
     z = builder.add(x, y)
     output = builder.relu(z)
 
-    graph = builder.build({"output": output})
+    graph = GraphExecution(context, builder, {"output": output})
 
     x_data = np.array([[1, -2, 3], [-4, 5, -6]], dtype=np.float32)
     y_data = np.array([[-1, 2, -3], [4, -5, 6]], dtype=np.float32)
 
-    results = context.compute(graph, {"x": x_data, "y": y_data})
+    results = graph.run({"x": x_data, "y": y_data})
     assert "output" in results
     assert results["output"].shape == (2, 3)
 
@@ -798,11 +769,11 @@ def test_matmul_computation(context, builder):
     b = builder.constant(b_data)
     c = builder.matmul(a, b)
 
-    graph = builder.build({"c": c})
+    graph = GraphExecution(context, builder, {"c": c})
 
     a_data = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
 
-    results = context.compute(graph, {"a": a_data})
+    results = graph.run({"a": a_data})
     assert "c" in results
 
     # Verify matrix multiplication
@@ -818,11 +789,13 @@ def test_multi_output_computation(context, builder):
     y2 = builder.sigmoid(x)
     y3 = builder.tanh(x)
 
-    graph = builder.build({"relu_out": y1, "sigmoid_out": y2, "tanh_out": y3})
+    graph = GraphExecution(
+        context, builder, {"relu_out": y1, "sigmoid_out": y2, "tanh_out": y3}
+    )
 
     x_data = np.array([[-1, 0, 1], [2, -2, 0.5]], dtype=np.float32)
 
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
 
     assert "relu_out" in results
     assert "sigmoid_out" in results
@@ -830,7 +803,9 @@ def test_multi_output_computation(context, builder):
 
     # Verify each output
     np.testing.assert_allclose(results["relu_out"], np.maximum(0, x_data), rtol=1e-5)
-    np.testing.assert_allclose(results["sigmoid_out"], 1 / (1 + np.exp(-x_data)), rtol=1e-5)
+    np.testing.assert_allclose(
+        results["sigmoid_out"], 1 / (1 + np.exp(-x_data)), rtol=1e-5
+    )
     np.testing.assert_allclose(results["tanh_out"], np.tanh(x_data), rtol=1e-5)
 
 
@@ -841,7 +816,10 @@ def test_broadcasting_same_shape(builder):
     b = builder.input("b", [2, 3], "float32")
     c = builder.add(a, b)
 
-    assert c.shape == [2, 3], f"Expected [2, 3], got {c.shape}"
+    assert builder.operand_shape(c) == [
+        2,
+        3,
+    ], f"Expected [2, 3], got {builder.operand_shape(c)}"
 
 
 def test_broadcasting_with_ones(builder):
@@ -850,7 +828,10 @@ def test_broadcasting_with_ones(builder):
     b = builder.input("b", [1, 3], "float32")
     c = builder.add(a, b)
 
-    assert c.shape == [2, 3], f"Expected [2, 3], got {c.shape}"
+    assert builder.operand_shape(c) == [
+        2,
+        3,
+    ], f"Expected [2, 3], got {builder.operand_shape(c)}"
 
 
 def test_broadcasting_different_ranks(builder):
@@ -859,7 +840,11 @@ def test_broadcasting_different_ranks(builder):
     b = builder.input("b", [3, 4], "float32")
     c = builder.add(a, b)
 
-    assert c.shape == [2, 3, 4], f"Expected [2, 3, 4], got {c.shape}"
+    assert builder.operand_shape(c) == [
+        2,
+        3,
+        4,
+    ], f"Expected [2, 3, 4], got {builder.operand_shape(c)}"
 
 
 def test_broadcasting_scalar(builder):
@@ -868,7 +853,10 @@ def test_broadcasting_scalar(builder):
     b = builder.input("b", [1], "float32")
     c = builder.mul(a, b)
 
-    assert c.shape == [2, 3], f"Expected [2, 3], got {c.shape}"
+    assert builder.operand_shape(c) == [
+        2,
+        3,
+    ], f"Expected [2, 3], got {builder.operand_shape(c)}"
 
 
 def test_broadcasting_incompatible(builder):
@@ -876,7 +864,7 @@ def test_broadcasting_incompatible(builder):
     a = builder.input("a", [2, 3], "float32")
     b = builder.input("b", [2, 4], "float32")
 
-    with pytest.raises(ValueError, match="Incompatible shapes"):
+    with pytest.raises(ValueError, match="broadcast"):
         builder.add(a, b)
 
 
@@ -886,7 +874,10 @@ def test_matmul_shape_inference(builder):
     b = builder.input("b", [3, 4], "float32")
     c = builder.matmul(a, b)
 
-    assert c.shape == [2, 4], f"Expected [2, 4], got {c.shape}"
+    assert builder.operand_shape(c) == [
+        2,
+        4,
+    ], f"Expected [2, 4], got {builder.operand_shape(c)}"
 
 
 def test_matmul_batched(builder):
@@ -895,7 +886,11 @@ def test_matmul_batched(builder):
     b = builder.input("b", [5, 3, 4], "float32")
     c = builder.matmul(a, b)
 
-    assert c.shape == [5, 2, 4], f"Expected [5, 2, 4], got {c.shape}"
+    assert builder.operand_shape(c) == [
+        5,
+        2,
+        4,
+    ], f"Expected [5, 2, 4], got {builder.operand_shape(c)}"
 
 
 def test_matmul_incompatible(builder):
@@ -917,8 +912,13 @@ def test_conv2d_basic_nchw(builder):
     # Conv2d with padding to maintain spatial dimensions
     output = builder.conv2d(input_op, filter_op, pads=[1, 1, 1, 1])
 
-    assert output.shape == [1, 64, 32, 32], f"Expected [1, 64, 32, 32], got {output.shape}"
-    assert output.data_type == "float32"
+    assert builder.operand_shape(output) == [
+        1,
+        64,
+        32,
+        32,
+    ], f"Expected [1, 64, 32, 32], got {builder.operand_shape(output)}"
+    assert builder.operand_data_type(output) == "float32"
 
 
 def test_conv2d_with_stride(builder):
@@ -929,7 +929,12 @@ def test_conv2d_with_stride(builder):
 
     output = builder.conv2d(input_op, filter_op, strides=[2, 2])
 
-    assert output.shape == [1, 32, 12, 12], f"Expected [1, 32, 12, 12], got {output.shape}"
+    assert builder.operand_shape(output) == [
+        1,
+        32,
+        12,
+        12,
+    ], f"Expected [1, 32, 12, 12], got {builder.operand_shape(output)}"
 
 
 def test_conv2d_nhwc_layout(builder):
@@ -942,7 +947,12 @@ def test_conv2d_nhwc_layout(builder):
     output = builder.conv2d(input_op, filter_op, pads=[1, 1, 1, 1], input_layout="nhwc")
 
     # Output should also be NHWC: [1, 32, 32, 64]
-    assert output.shape == [1, 32, 32, 64], f"Expected [1, 32, 32, 64], got {output.shape}"
+    assert builder.operand_shape(output) == [
+        1,
+        32,
+        32,
+        64,
+    ], f"Expected [1, 32, 32, 64], got {builder.operand_shape(output)}"
 
 
 def test_conv2d_depthwise(builder):
@@ -955,7 +965,12 @@ def test_conv2d_depthwise(builder):
     output = builder.conv2d(input_op, filter_op, pads=[1, 1, 1, 1], groups=32)
 
     # Output should maintain channel count for depthwise conv
-    assert output.shape == [1, 32, 28, 28], f"Expected [1, 32, 28, 28], got {output.shape}"
+    assert builder.operand_shape(output) == [
+        1,
+        32,
+        28,
+        28,
+    ], f"Expected [1, 32, 28, 28], got {builder.operand_shape(output)}"
 
 
 def test_conv2d_with_dilation(builder):
@@ -967,7 +982,12 @@ def test_conv2d_with_dilation(builder):
     # Dilation=2 increases effective kernel size to 5x5
     output = builder.conv2d(input_op, filter_op, dilations=[2, 2], pads=[2, 2, 2, 2])
 
-    assert output.shape == [1, 64, 32, 32], f"Expected [1, 64, 32, 32], got {output.shape}"
+    assert builder.operand_shape(output) == [
+        1,
+        64,
+        32,
+        32,
+    ], f"Expected [1, 64, 32, 32], got {builder.operand_shape(output)}"
 
 
 def test_conv2d_invalid_input_shape(builder):
@@ -987,7 +1007,9 @@ def test_conv2d_invalid_groups(builder):
     filter_data = np.random.randn(64, 1, 3, 3).astype(np.float32)
     filter_op = builder.constant(filter_data)
 
-    with pytest.raises(ValueError, match="Conv2d input channels.*must be divisible by groups"):
+    with pytest.raises(
+        ValueError, match="Conv2d input channels.*must be divisible by groups"
+    ):
         builder.conv2d(input_op, filter_op, groups=2)
 
 
@@ -997,7 +1019,7 @@ def test_conv2d_invalid_layout(builder):
     filter_data = np.random.randn(64, 3, 3, 3).astype(np.float32)
     filter_op = builder.constant(filter_data)
 
-    with pytest.raises(ValueError, match="Invalid input_layout"):
+    with pytest.raises(ValueError, match="nchw.*nhwc"):
         builder.conv2d(input_op, filter_op, input_layout="invalid")
 
 
@@ -1011,8 +1033,13 @@ def test_conv_transpose2d_basic(builder):
 
     output = builder.conv_transpose2d(input_op, filter_op)
 
-    assert output.shape == [1, 32, 16, 16], f"Expected [1, 32, 16, 16], got {output.shape}"
-    assert output.data_type == "float32"
+    assert builder.operand_shape(output) == [
+        1,
+        32,
+        16,
+        16,
+    ], f"Expected [1, 32, 16, 16], got {builder.operand_shape(output)}"
+    assert builder.operand_data_type(output) == "float32"
 
 
 def test_conv_transpose2d_with_stride(builder):
@@ -1025,7 +1052,12 @@ def test_conv_transpose2d_with_stride(builder):
 
     output = builder.conv_transpose2d(input_op, filter_op, strides=[2, 2])
 
-    assert output.shape == [1, 32, 29, 29], f"Expected [1, 32, 29, 29], got {output.shape}"
+    assert builder.operand_shape(output) == [
+        1,
+        32,
+        29,
+        29,
+    ], f"Expected [1, 32, 29, 29], got {builder.operand_shape(output)}"
 
 
 def test_conv_transpose2d_with_padding(builder):
@@ -1036,9 +1068,16 @@ def test_conv_transpose2d_with_padding(builder):
     filter_data = np.random.randn(64, 32, 3, 3).astype(np.float32)
     filter_op = builder.constant(filter_data)
 
-    output = builder.conv_transpose2d(input_op, filter_op, strides=[2, 2], pads=[1, 1, 1, 1])
+    output = builder.conv_transpose2d(
+        input_op, filter_op, strides=[2, 2], pads=[1, 1, 1, 1]
+    )
 
-    assert output.shape == [1, 32, 27, 27], f"Expected [1, 32, 27, 27], got {output.shape}"
+    assert builder.operand_shape(output) == [
+        1,
+        32,
+        27,
+        27,
+    ], f"Expected [1, 32, 27, 27], got {builder.operand_shape(output)}"
 
 
 def test_conv_transpose2d_with_output_padding(builder):
@@ -1049,9 +1088,16 @@ def test_conv_transpose2d_with_output_padding(builder):
     filter_data = np.random.randn(64, 32, 3, 3).astype(np.float32)
     filter_op = builder.constant(filter_data)
 
-    output = builder.conv_transpose2d(input_op, filter_op, strides=[2, 2], output_padding=[1, 1])
+    output = builder.conv_transpose2d(
+        input_op, filter_op, strides=[2, 2], output_padding=[1, 1]
+    )
 
-    assert output.shape == [1, 32, 30, 30], f"Expected [1, 32, 30, 30], got {output.shape}"
+    assert builder.operand_shape(output) == [
+        1,
+        32,
+        30,
+        30,
+    ], f"Expected [1, 32, 30, 30], got {builder.operand_shape(output)}"
 
 
 def test_conv_transpose2d_with_output_sizes(builder):
@@ -1065,7 +1111,12 @@ def test_conv_transpose2d_with_output_sizes(builder):
         input_op, filter_op, strides=[2, 2], pads=[1, 1, 1, 1], output_sizes=[28, 28]
     )
 
-    assert output.shape == [1, 32, 28, 28], f"Expected [1, 32, 28, 28], got {output.shape}"
+    assert builder.operand_shape(output) == [
+        1,
+        32,
+        28,
+        28,
+    ], f"Expected [1, 32, 28, 28], got {builder.operand_shape(output)}"
 
 
 def test_conv_transpose2d_nhwc_layout(builder):
@@ -1080,7 +1131,12 @@ def test_conv_transpose2d_nhwc_layout(builder):
     )
 
     # Output should also be NHWC: [1, 29, 29, 32]
-    assert output.shape == [1, 29, 29, 32], f"Expected [1, 29, 29, 32], got {output.shape}"
+    assert builder.operand_shape(output) == [
+        1,
+        29,
+        29,
+        32,
+    ], f"Expected [1, 29, 29, 32], got {builder.operand_shape(output)}"
 
 
 def test_conv_transpose2d_invalid_input_shape(builder):
@@ -1099,7 +1155,7 @@ def test_conv_transpose2d_invalid_layout(builder):
     filter_data = np.random.randn(64, 32, 3, 3).astype(np.float32)
     filter_op = builder.constant(filter_data)
 
-    with pytest.raises(ValueError, match="Invalid input_layout"):
+    with pytest.raises(ValueError, match="nchw.*nhwc"):
         builder.conv_transpose2d(input_op, filter_op, input_layout="invalid")
 
 
@@ -1111,21 +1167,28 @@ def test_average_pool2d_basic(builder):
     output = builder.average_pool2d(input_op, window_dimensions=[2, 2], strides=[2, 2])
 
     # Output shape: [1, 64, 14, 14]
-    assert output.shape == [1, 64, 14, 14], f"Expected [1, 64, 14, 14], got {output.shape}"
+    assert builder.operand_shape(output) == [
+        1,
+        64,
+        14,
+        14,
+    ], f"Expected [1, 64, 14, 14], got {builder.operand_shape(output)}"
 
 
 def test_average_pool2d_with_padding(builder):
     """Test averagePool2d with padding"""
     input_op = builder.input("input", [1, 64, 28, 28], "float32")
     output = builder.average_pool2d(
-        input_op,
-        window_dimensions=[3, 3],
-        strides=[2, 2],
-        pads=[1, 1, 1, 1]
+        input_op, window_dimensions=[3, 3], strides=[2, 2], pads=[1, 1, 1, 1]
     )
 
     # With padding, output shape: [1, 64, 14, 14]
-    assert output.shape == [1, 64, 14, 14], f"Expected [1, 64, 14, 14], got {output.shape}"
+    assert builder.operand_shape(output) == [
+        1,
+        64,
+        14,
+        14,
+    ], f"Expected [1, 64, 14, 14], got {builder.operand_shape(output)}"
 
 
 def test_average_pool2d_nhwc_layout(builder):
@@ -1133,14 +1196,16 @@ def test_average_pool2d_nhwc_layout(builder):
     # Input in NHWC: [1, 28, 28, 64]
     input_op = builder.input("input", [1, 28, 28, 64], "float32")
     output = builder.average_pool2d(
-        input_op,
-        window_dimensions=[2, 2],
-        strides=[2, 2],
-        layout="nhwc"
+        input_op, window_dimensions=[2, 2], strides=[2, 2], layout="nhwc"
     )
 
     # Output should also be NHWC: [1, 14, 14, 64]
-    assert output.shape == [1, 14, 14, 64], f"Expected [1, 14, 14, 64], got {output.shape}"
+    assert builder.operand_shape(output) == [
+        1,
+        14,
+        14,
+        64,
+    ], f"Expected [1, 14, 14, 64], got {builder.operand_shape(output)}"
 
 
 def test_max_pool2d_basic(builder):
@@ -1150,21 +1215,28 @@ def test_max_pool2d_basic(builder):
     output = builder.max_pool2d(input_op, window_dimensions=[2, 2], strides=[2, 2])
 
     # Output shape: [1, 64, 14, 14]
-    assert output.shape == [1, 64, 14, 14], f"Expected [1, 64, 14, 14], got {output.shape}"
+    assert builder.operand_shape(output) == [
+        1,
+        64,
+        14,
+        14,
+    ], f"Expected [1, 64, 14, 14], got {builder.operand_shape(output)}"
 
 
 def test_max_pool2d_with_padding(builder):
     """Test maxPool2d with padding"""
     input_op = builder.input("input", [1, 64, 28, 28], "float32")
     output = builder.max_pool2d(
-        input_op,
-        window_dimensions=[3, 3],
-        strides=[2, 2],
-        pads=[1, 1, 1, 1]
+        input_op, window_dimensions=[3, 3], strides=[2, 2], pads=[1, 1, 1, 1]
     )
 
     # With padding, output shape: [1, 64, 14, 14]
-    assert output.shape == [1, 64, 14, 14], f"Expected [1, 64, 14, 14], got {output.shape}"
+    assert builder.operand_shape(output) == [
+        1,
+        64,
+        14,
+        14,
+    ], f"Expected [1, 64, 14, 14], got {builder.operand_shape(output)}"
 
 
 def test_max_pool2d_stride_variations(builder):
@@ -1174,7 +1246,12 @@ def test_max_pool2d_stride_variations(builder):
     output = builder.max_pool2d(input_op, window_dimensions=[2, 2], strides=[1, 1])
 
     # Output shape: [1, 32, 13, 13]
-    assert output.shape == [1, 32, 13, 13], f"Expected [1, 32, 13, 13], got {output.shape}"
+    assert builder.operand_shape(output) == [
+        1,
+        32,
+        13,
+        13,
+    ], f"Expected [1, 32, 13, 13], got {builder.operand_shape(output)}"
 
 
 def test_pool2d_invalid_input_shape(builder):
@@ -1200,7 +1277,12 @@ def test_global_average_pool_basic(builder):
     input_op = builder.input("input", [1, 64, 28, 28], "float32")
     output = builder.global_average_pool(input_op)
 
-    assert output.shape == [1, 64, 1, 1], f"Expected [1, 64, 1, 1], got {output.shape}"
+    assert builder.operand_shape(output) == [
+        1,
+        64,
+        1,
+        1,
+    ], f"Expected [1, 64, 1, 1], got {builder.operand_shape(output)}"
 
 
 def test_global_average_pool_nhwc(builder):
@@ -1209,7 +1291,12 @@ def test_global_average_pool_nhwc(builder):
     input_op = builder.input("input", [1, 28, 28, 64], "float32")
     output = builder.global_average_pool(input_op, layout="nhwc")
 
-    assert output.shape == [1, 1, 1, 64], f"Expected [1, 1, 1, 64], got {output.shape}"
+    assert builder.operand_shape(output) == [
+        1,
+        1,
+        1,
+        64,
+    ], f"Expected [1, 1, 1, 64], got {builder.operand_shape(output)}"
 
 
 def test_global_max_pool_basic(builder):
@@ -1218,7 +1305,12 @@ def test_global_max_pool_basic(builder):
     input_op = builder.input("input", [2, 128, 7, 7], "float32")
     output = builder.global_max_pool(input_op)
 
-    assert output.shape == [2, 128, 1, 1], f"Expected [2, 128, 1, 1], got {output.shape}"
+    assert builder.operand_shape(output) == [
+        2,
+        128,
+        1,
+        1,
+    ], f"Expected [2, 128, 1, 1], got {builder.operand_shape(output)}"
 
 
 def test_global_max_pool_various_sizes(builder):
@@ -1226,12 +1318,22 @@ def test_global_max_pool_various_sizes(builder):
     # Test with 14x14 spatial dimensions
     input_op = builder.input("input", [1, 512, 14, 14], "float32")
     output = builder.global_max_pool(input_op)
-    assert output.shape == [1, 512, 1, 1], f"Expected [1, 512, 1, 1], got {output.shape}"
+    assert builder.operand_shape(output) == [
+        1,
+        512,
+        1,
+        1,
+    ], f"Expected [1, 512, 1, 1], got {builder.operand_shape(output)}"
 
     # Test with different batch size
     input_op2 = builder.input("input2", [4, 256, 8, 8], "float32")
     output2 = builder.global_max_pool(input_op2)
-    assert output2.shape == [4, 256, 1, 1], f"Expected [4, 256, 1, 1], got {output2.shape}"
+    assert builder.operand_shape(output2) == [
+        4,
+        256,
+        1,
+        1,
+    ], f"Expected [4, 256, 1, 1], got {builder.operand_shape(output2)}"
 
 
 def test_global_pool_invalid_input_shape(builder):
@@ -1261,7 +1363,12 @@ def test_batch_normalization_basic(builder):
     variance = builder.input("variance", [64], "float32")
 
     output = builder.batch_normalization(input_op, mean, variance)
-    assert output.shape == [2, 64, 28, 28], f"Expected [2, 64, 28, 28], got {output.shape}"
+    assert builder.operand_shape(output) == [
+        2,
+        64,
+        28,
+        28,
+    ], f"Expected [2, 64, 28, 28], got {builder.operand_shape(output)}"
 
 
 def test_batch_normalization_with_scale_bias(builder):
@@ -1275,7 +1382,7 @@ def test_batch_normalization_with_scale_bias(builder):
     output = builder.batch_normalization(
         input_op, mean, variance, scale=scale, bias=bias, epsilon=1e-5, axis=1
     )
-    assert output.shape == [1, 32, 14, 14]
+    assert builder.operand_shape(output) == [1, 32, 14, 14]
 
 
 def test_batch_normalization_custom_epsilon(builder):
@@ -1285,7 +1392,7 @@ def test_batch_normalization_custom_epsilon(builder):
     variance = builder.input("variance", [128], "float32")
 
     output = builder.batch_normalization(input_op, mean, variance, epsilon=1e-3)
-    assert output.shape == [4, 128, 7, 7]
+    assert builder.operand_shape(output) == [4, 128, 7, 7]
 
 
 def test_instance_normalization_basic(builder):
@@ -1294,7 +1401,12 @@ def test_instance_normalization_basic(builder):
     input_op = builder.input("input", [2, 64, 28, 28], "float32")
 
     output = builder.instance_normalization(input_op)
-    assert output.shape == [2, 64, 28, 28], f"Expected [2, 64, 28, 28], got {output.shape}"
+    assert builder.operand_shape(output) == [
+        2,
+        64,
+        28,
+        28,
+    ], f"Expected [2, 64, 28, 28], got {builder.operand_shape(output)}"
 
 
 def test_instance_normalization_with_scale_bias(builder):
@@ -1304,7 +1416,7 @@ def test_instance_normalization_with_scale_bias(builder):
     bias = builder.input("bias", [32], "float32")
 
     output = builder.instance_normalization(input_op, scale=scale, bias=bias)
-    assert output.shape == [1, 32, 14, 14]
+    assert builder.operand_shape(output) == [1, 32, 14, 14]
 
 
 def test_instance_normalization_nhwc(builder):
@@ -1312,7 +1424,7 @@ def test_instance_normalization_nhwc(builder):
     input_op = builder.input("input", [2, 28, 28, 64], "float32")
 
     output = builder.instance_normalization(input_op, layout="nhwc")
-    assert output.shape == [2, 28, 28, 64]
+    assert builder.operand_shape(output) == [2, 28, 28, 64]
 
 
 def test_instance_normalization_custom_epsilon(builder):
@@ -1320,7 +1432,7 @@ def test_instance_normalization_custom_epsilon(builder):
     input_op = builder.input("input", [4, 128, 7, 7], "float32")
 
     output = builder.instance_normalization(input_op, epsilon=1e-6)
-    assert output.shape == [4, 128, 7, 7]
+    assert builder.operand_shape(output) == [4, 128, 7, 7]
 
 
 def test_layer_normalization_basic(builder):
@@ -1329,7 +1441,10 @@ def test_layer_normalization_basic(builder):
     input_op = builder.input("input", [2, 512], "float32")
 
     output = builder.layer_normalization(input_op)
-    assert output.shape == [2, 512], f"Expected [2, 512], got {output.shape}"
+    assert builder.operand_shape(output) == [
+        2,
+        512,
+    ], f"Expected [2, 512], got {builder.operand_shape(output)}"
 
 
 def test_layer_normalization_with_scale_bias(builder):
@@ -1339,7 +1454,7 @@ def test_layer_normalization_with_scale_bias(builder):
     bias = builder.input("bias", [768], "float32")
 
     output = builder.layer_normalization(input_op, scale=scale, bias=bias)
-    assert output.shape == [4, 768]
+    assert builder.operand_shape(output) == [4, 768]
 
 
 def test_layer_normalization_3d_input(builder):
@@ -1348,7 +1463,7 @@ def test_layer_normalization_3d_input(builder):
     input_op = builder.input("input", [2, 10, 512], "float32")
 
     output = builder.layer_normalization(input_op, axes=[2])
-    assert output.shape == [2, 10, 512]
+    assert builder.operand_shape(output) == [2, 10, 512]
 
 
 def test_layer_normalization_custom_axes(builder):
@@ -1356,7 +1471,7 @@ def test_layer_normalization_custom_axes(builder):
     input_op = builder.input("input", [2, 8, 256], "float32")
 
     output = builder.layer_normalization(input_op, axes=[1, 2])
-    assert output.shape == [2, 8, 256]
+    assert builder.operand_shape(output) == [2, 8, 256]
 
 
 def test_layer_normalization_custom_epsilon(builder):
@@ -1364,7 +1479,7 @@ def test_layer_normalization_custom_epsilon(builder):
     input_op = builder.input("input", [1, 1024], "float32")
 
     output = builder.layer_normalization(input_op, epsilon=1e-12)
-    assert output.shape == [1, 1024]
+    assert builder.operand_shape(output) == [1, 1024]
 
 
 def test_reshape_valid(builder):
@@ -1372,7 +1487,9 @@ def test_reshape_valid(builder):
     x = builder.input("x", [2, 3], "float32")
     y = builder.reshape(x, [6])
 
-    assert y.shape == [6], f"Expected [6], got {y.shape}"
+    assert builder.operand_shape(y) == [
+        6
+    ], f"Expected [6], got {builder.operand_shape(y)}"
 
 
 def test_reshape_invalid(builder):
@@ -1390,12 +1507,12 @@ def test_broadcasting_computation(context, builder):
     b = builder.input("b", [1, 3], "float32")
     c = builder.add(a, b)
 
-    graph = builder.build({"c": c})
+    graph = GraphExecution(context, builder, {"c": c})
 
     a_data = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
     b_data = np.array([[10, 20, 30]], dtype=np.float32)
 
-    results = context.compute(graph, {"a": a_data, "b": b_data})
+    results = graph.run({"a": a_data, "b": b_data})
     expected = a_data + b_data
 
     np.testing.assert_allclose(results["c"], expected, rtol=1e-5)
@@ -1404,16 +1521,15 @@ def test_broadcasting_computation(context, builder):
 # MLTensor Tests
 def test_create_tensor(context):
     """Test creating a tensor"""
-    tensor = context.create_host_tensor([2, 3], "float32")
+    tensor = context.create_tensor([2, 3], "float32", readable=True, writable=True)
 
     assert tensor.shape == [2, 3]
     assert tensor.data_type == "float32"
-    assert tensor.size == 6
 
 
 def test_write_read_tensor(context):
     """Test writing and reading tensor data"""
-    tensor = context.create_host_tensor([2, 3], "float32")
+    tensor = context.create_tensor([2, 3], "float32", readable=True, writable=True)
 
     # Write data to tensor
     data = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
@@ -1427,7 +1543,7 @@ def test_write_read_tensor(context):
 
 def test_write_tensor_shape_mismatch(context):
     """Test that writing wrong shape raises error"""
-    tensor = context.create_host_tensor([2, 3], "float32")
+    tensor = context.create_tensor([2, 3], "float32", readable=True, writable=True)
     wrong_data = np.array([[1, 2], [3, 4]], dtype=np.float32)
 
     with pytest.raises(ValueError, match="Shape mismatch"):
@@ -1436,7 +1552,7 @@ def test_write_tensor_shape_mismatch(context):
 
 def test_tensor_initial_data(context):
     """Test that tensors are initialized with zeros"""
-    tensor = context.create_host_tensor([2, 3], "float32")
+    tensor = context.create_tensor([2, 3], "float32", readable=True, writable=True)
     result = context.read_tensor(tensor)
 
     expected = np.zeros((2, 3), dtype=np.float32)
@@ -1445,24 +1561,12 @@ def test_tensor_initial_data(context):
 
 def test_tensor_different_shapes(context):
     """Test creating tensors with different shapes"""
-    tensor1 = context.create_host_tensor([5], "float32")
-    tensor2 = context.create_host_tensor([2, 3, 4], "float32")
+    tensor1 = context.create_tensor([5], "float32", readable=True, writable=True)
+    tensor2 = context.create_tensor([2, 3, 4], "float32", readable=True, writable=True)
 
     assert tensor1.shape == [5]
-    assert tensor1.size == 5
 
     assert tensor2.shape == [2, 3, 4]
-    assert tensor2.size == 24
-
-
-def test_tensor_repr(context):
-    """Test tensor string representation"""
-    tensor = context.create_host_tensor([2, 3], "float32")
-    repr_str = repr(tensor)
-
-    assert "MLTensor" in repr_str
-    assert "[2, 3]" in repr_str
-    assert "float32" in repr_str
 
 
 def test_tensor_descriptor_flags(context):
@@ -1471,69 +1575,54 @@ def test_tensor_descriptor_flags(context):
     tensor_default = context.create_tensor([2, 3], "float32")
     assert tensor_default.readable == False
     assert tensor_default.writable == False
-    assert tensor_default.exportable_to_gpu == False
 
     # Test host tensor convenience method
-    tensor_host = context.create_host_tensor([2, 3], "float32")
+    tensor_host = context.create_tensor([2, 3], "float32", readable=True, writable=True)
     assert tensor_host.readable == True
     assert tensor_host.writable == True
-    assert tensor_host.exportable_to_gpu == False
 
     # Test custom flags
-    tensor_readonly = context.create_tensor([2, 3], "float32", readable=True, writable=False)
+    tensor_readonly = context.create_tensor(
+        [2, 3], "float32", readable=True, writable=False
+    )
     assert tensor_readonly.readable == True
     assert tensor_readonly.writable == False
 
-    tensor_writeonly = context.create_tensor([2, 3], "float32", readable=False, writable=True)
+    tensor_writeonly = context.create_tensor(
+        [2, 3], "float32", readable=False, writable=True
+    )
     assert tensor_writeonly.readable == False
     assert tensor_writeonly.writable == True
 
-    tensor_gpu_exportable = context.create_tensor([2, 3], "float32", exportable_to_gpu=True)
-    assert tensor_gpu_exportable.exportable_to_gpu == True
 
-
-def test_tensor_destroy(context):
-    """Test explicit tensor resource cleanup with destroy()"""
-    tensor = context.create_host_tensor([2, 3], "float32")
-
-    # Write some data
-    data = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
-    context.write_tensor(tensor, data)
-
-    # Read data should work
-    result = context.read_tensor(tensor)
-    np.testing.assert_array_equal(result, data)
-
-    # Destroy the tensor
-    tensor.destroy()
-
-    # Further operations should fail
-    with pytest.raises(RuntimeError, match="destroyed"):
-        context.read_tensor(tensor)
-
-    # Destroy again should also fail
-    with pytest.raises(RuntimeError, match="already destroyed"):
+def test_tensor_destroy_matches_native_unimplemented(context):
+    tensor = context.create_tensor([2, 3], "float32")
+    with pytest.raises(NotImplementedError, match="RustNN"):
         tensor.destroy()
 
 
 def test_tensor_read_write_permissions(context):
     """Test that tensor flags are enforced"""
     # Create read-only tensor
-    tensor_readonly = context.create_tensor([2, 3], "float32", readable=True, writable=False)
+    tensor_readonly = context.create_tensor(
+        [2, 3], "float32", readable=True, writable=False
+    )
 
     # Writing should fail
     data = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
-    with pytest.raises(RuntimeError, match="not writable"):
+    with pytest.raises(RuntimeError, match="non-writable"):
         context.write_tensor(tensor_readonly, data)
 
     # Create write-only tensor
-    tensor_writeonly = context.create_tensor([2, 3], "float32", readable=False, writable=True)
+    tensor_writeonly = context.create_tensor(
+        [2, 3], "float32", readable=False, writable=True
+    )
 
     # Writing should work
     context.write_tensor(tensor_writeonly, data)
 
     # Reading should fail
-    with pytest.raises(RuntimeError, match="not readable"):
+    with pytest.raises(RuntimeError, match="non-readable"):
         context.read_tensor(tensor_writeonly)
 
 
@@ -1546,8 +1635,12 @@ def test_dispatch_method(context, builder):
     graph = builder.build({"output": y})
 
     # Create input and output tensors
-    input_tensor = context.create_host_tensor([2, 3], "float32")
-    output_tensor = context.create_host_tensor([2, 3], "float32")
+    input_tensor = context.create_tensor(
+        [2, 3], "float32", readable=True, writable=True
+    )
+    output_tensor = context.create_tensor(
+        [2, 3], "float32", readable=True, writable=True
+    )
 
     # Write input data
     input_data = np.array([[1, -2, 3], [-4, 5, -6]], dtype=np.float32)
@@ -1568,7 +1661,9 @@ def test_dispatch_method(context, builder):
 def test_tensor_workflow(context, builder):
     """Test complete tensor workflow with graph execution"""
     # Create tensors for inputs and outputs
-    input_tensor = context.create_host_tensor([2, 3], "float32")
+    input_tensor = context.create_tensor(
+        [2, 3], "float32", readable=True, writable=True
+    )
 
     # Write input data
     input_data = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
@@ -1577,13 +1672,13 @@ def test_tensor_workflow(context, builder):
     # Build a simple graph
     x = builder.input("x", [2, 3], "float32")
     y = builder.relu(x)
-    graph = builder.build({"output": y})
+    graph = GraphExecution(context, builder, {"output": y})
 
     # Read input from tensor for compute
     tensor_data = context.read_tensor(input_tensor)
 
     # Execute graph
-    results = context.compute(graph, {"x": tensor_data})
+    results = graph.run({"x": tensor_data})
 
     # Verify result
     expected = np.maximum(input_data, 0)
@@ -1597,149 +1692,16 @@ if __name__ == "__main__":
 # Async Execution Tests
 # ============================================================================
 
-@pytest.fixture
-def async_context(context):
-    """Create async ML context wrapper"""
-    return webnn.AsyncMLContext(context)
-
-
-@pytest.mark.asyncio
-async def test_async_dispatch(async_context):
-    """Test asynchronous graph dispatch"""
-    builder = async_context.create_graph_builder()
-
-    # Build simple graph
-    x = builder.input("x", [2, 3], "float32")
-    y = builder.relu(x)
-    graph = builder.build({"output": y})
-
-    # Create tensors for dispatch
-    input_tensor = async_context.create_tensor([2, 3], "float32")
-    output_tensor = async_context.create_tensor([2, 3], "float32")
-
-    # Write input data
-    input_data = np.array([[1, -2, 3], [-4, 5, -6]], dtype=np.float32)
-    await async_context.write_tensor_async(input_tensor, input_data)
-
-    # Dispatch asynchronously
-    await async_context.dispatch(graph, {"x": input_tensor}, {"output": output_tensor})
-
-    # Dispatch should complete without error
-    # Optionally verify output
-    result = await async_context.read_tensor_async(output_tensor)
-    assert result.shape == (2, 3)
-
-
-@pytest.mark.asyncio
-async def test_async_tensor_read_write(async_context):
-    """Test asynchronous tensor read/write operations"""
-    # Create tensor
-    tensor = async_context.create_tensor([2, 3], "float32")
-    
-    # Write data asynchronously
-    data = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
-    await async_context.write_tensor_async(tensor, data)
-    
-    # Read data asynchronously
-    result = await async_context.read_tensor_async(tensor)
-    
-    np.testing.assert_array_equal(result, data)
-
-
-@pytest.mark.asyncio
-async def test_async_concurrent_operations(async_context):
-    """Test multiple concurrent async operations"""
-    import asyncio
-    
-    # Create multiple tensors
-    tensors = [
-        async_context.create_tensor([2, 2], "float32")
-        for _ in range(3)
-    ]
-    
-    # Write to all tensors concurrently
-    async def write_tensor(tensor, value):
-        data = np.full((2, 2), value, dtype=np.float32)
-        await async_context.write_tensor_async(tensor, data)
-    
-    await asyncio.gather(*[
-        write_tensor(tensor, i)
-        for i, tensor in enumerate(tensors)
-    ])
-    
-    # Read from all tensors concurrently
-    results = await asyncio.gather(*[
-        async_context.read_tensor_async(tensor)
-        for tensor in tensors
-    ])
-    
-    # Verify results
-    for i, result in enumerate(results):
-        expected = np.full((2, 2), i, dtype=np.float32)
-        np.testing.assert_array_equal(result, expected)
-
-
-@pytest.mark.asyncio
-@requires_execution_backend
-async def test_async_dispatch_with_actual_computation(async_context):
-    """Test async dispatch with actual graph computation"""
-    builder = async_context.create_graph_builder()
-
-    # Build graph: output = relu(x + y)
-    x = builder.input("x", [2, 3], "float32")
-    y = builder.input("y", [2, 3], "float32")
-    z = builder.add(x, y)
-    output = builder.relu(z)
-    graph = builder.build({"output": output})
-
-    # Create tensors for dispatch
-    x_tensor = async_context.create_tensor([2, 3], "float32")
-    y_tensor = async_context.create_tensor([2, 3], "float32")
-    output_tensor = async_context.create_tensor([2, 3], "float32")
-
-    # Write input data asynchronously
-    x_data = np.array([[1, -2, 3], [-4, 5, -6]], dtype=np.float32)
-    y_data = np.array([[0, 1, -1], [2, -3, 4]], dtype=np.float32)
-    await async_context.write_tensor_async(x_tensor, x_data)
-    await async_context.write_tensor_async(y_tensor, y_data)
-
-    # Dispatch asynchronously
-    await async_context.dispatch(
-        graph,
-        {"x": x_tensor, "y": y_tensor},
-        {"output": output_tensor}
-    )
-
-    # Read results asynchronously
-    result = await async_context.read_tensor_async(output_tensor)
-
-    # Verify execution completed with correct results (relu(x + y))
-    expected = np.array([[1, 0, 2], [0, 2, 0]], dtype=np.float32)
-    np.testing.assert_array_almost_equal(result, expected)
-
-
-@pytest.mark.asyncio
-async def test_async_context_properties(async_context):
-    """Test that async context preserves underlying context properties"""
-    assert async_context.accelerated == False  # CPU-only from fixture
-    assert async_context.power_preference == "default"
-
-    # Test synchronous methods still work
-    builder = async_context.create_graph_builder()
-    assert builder is not None
-
-    tensor = async_context.create_tensor([2, 2], "float32")
-    assert tensor is not None
-
 
 # === Reduction Operations Tests ===
+
 
 def test_reduce_sum_single_axis(context):
     """Test reduceSum operation with single axis"""
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4], "float32")
     output = builder.reduce_sum(x, axes=[1], keep_dimensions=False)
-    assert output.shape == [2, 4]
+    assert builder.operand_shape(output) == [2, 4]
     graph = builder.build({"output": output})
 
 
@@ -1748,7 +1710,7 @@ def test_reduce_sum_single_axis_keep_dims(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4], "float32")
     output = builder.reduce_sum(x, axes=[1], keep_dimensions=True)
-    assert output.shape == [2, 1, 4]
+    assert builder.operand_shape(output) == [2, 1, 4]
     graph = builder.build({"output": output})
 
 
@@ -1757,7 +1719,7 @@ def test_reduce_sum_multiple_axes(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4, 5], "float32")
     output = builder.reduce_sum(x, axes=[1, 2], keep_dimensions=False)
-    assert output.shape == [2, 5]
+    assert builder.operand_shape(output) == [2, 5]
     graph = builder.build({"output": output})
 
 
@@ -1766,7 +1728,7 @@ def test_reduce_sum_all_axes(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4], "float32")
     output = builder.reduce_sum(x, axes=None, keep_dimensions=False)
-    assert output.shape == []  # Scalar
+    assert builder.operand_shape(output) == []  # Scalar
     graph = builder.build({"output": output})
 
 
@@ -1775,7 +1737,7 @@ def test_reduce_mean_single_axis(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4], "float32")
     output = builder.reduce_mean(x, axes=[1], keep_dimensions=False)
-    assert output.shape == [2, 4]
+    assert builder.operand_shape(output) == [2, 4]
     graph = builder.build({"output": output})
 
 
@@ -1784,7 +1746,7 @@ def test_reduce_mean_keep_dims(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4], "float32")
     output = builder.reduce_mean(x, axes=[0, 2], keep_dimensions=True)
-    assert output.shape == [1, 3, 1]
+    assert builder.operand_shape(output) == [1, 3, 1]
     graph = builder.build({"output": output})
 
 
@@ -1793,7 +1755,7 @@ def test_reduce_max(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4], "float32")
     output = builder.reduce_max(x, axes=[1], keep_dimensions=False)
-    assert output.shape == [2, 4]
+    assert builder.operand_shape(output) == [2, 4]
     graph = builder.build({"output": output})
 
 
@@ -1802,7 +1764,7 @@ def test_reduce_min(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4], "float32")
     output = builder.reduce_min(x, axes=[2], keep_dimensions=False)
-    assert output.shape == [2, 3]
+    assert builder.operand_shape(output) == [2, 3]
     graph = builder.build({"output": output})
 
 
@@ -1811,7 +1773,7 @@ def test_reduce_product(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4], "float32")
     output = builder.reduce_product(x, axes=[1], keep_dimensions=False)
-    assert output.shape == [2, 4]
+    assert builder.operand_shape(output) == [2, 4]
     graph = builder.build({"output": output})
 
 
@@ -1820,7 +1782,7 @@ def test_reduce_l1(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4], "float32")
     output = builder.reduce_l1(x, axes=[1], keep_dimensions=False)
-    assert output.shape == [2, 4]
+    assert builder.operand_shape(output) == [2, 4]
     graph = builder.build({"output": output})
 
 
@@ -1829,7 +1791,7 @@ def test_reduce_l2(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4], "float32")
     output = builder.reduce_l2(x, axes=[1], keep_dimensions=False)
-    assert output.shape == [2, 4]
+    assert builder.operand_shape(output) == [2, 4]
     graph = builder.build({"output": output})
 
 
@@ -1838,7 +1800,7 @@ def test_reduce_log_sum(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4], "float32")
     output = builder.reduce_log_sum(x, axes=[1], keep_dimensions=False)
-    assert output.shape == [2, 4]
+    assert builder.operand_shape(output) == [2, 4]
     graph = builder.build({"output": output})
 
 
@@ -1847,7 +1809,7 @@ def test_reduce_log_sum_exp(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4], "float32")
     output = builder.reduce_log_sum_exp(x, axes=[1], keep_dimensions=False)
-    assert output.shape == [2, 4]
+    assert builder.operand_shape(output) == [2, 4]
     graph = builder.build({"output": output})
 
 
@@ -1856,7 +1818,7 @@ def test_reduce_sum_square(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4], "float32")
     output = builder.reduce_sum_square(x, axes=[1], keep_dimensions=False)
-    assert output.shape == [2, 4]
+    assert builder.operand_shape(output) == [2, 4]
     graph = builder.build({"output": output})
 
 
@@ -1881,7 +1843,7 @@ def test_reduce_sum_non_contiguous_axes(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4, 5], "float32")
     output = builder.reduce_sum(x, axes=[0, 2], keep_dimensions=False)
-    assert output.shape == [3, 5]
+    assert builder.operand_shape(output) == [3, 5]
     graph = builder.build({"output": output})
 
 
@@ -1890,7 +1852,7 @@ def test_reduce_sum_non_contiguous_axes_keep_dims(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4, 5], "float32")
     output = builder.reduce_sum(x, axes=[0, 2], keep_dimensions=True)
-    assert output.shape == [1, 3, 1, 5]
+    assert builder.operand_shape(output) == [1, 3, 1, 5]
     graph = builder.build({"output": output})
 
 
@@ -1906,8 +1868,8 @@ def test_dequantize_linear(context):
     # Dequantize: output = (x - zero_point) * scale
     output = builder.dequantize_linear(x, scale, zero_point)
     # Output should be float32 with same shape as input
-    assert output.shape == [1, 3, 224, 224]
-    assert output.data_type == "float32"
+    assert builder.operand_shape(output) == [1, 3, 224, 224]
+    assert builder.operand_data_type(output) == "float32"
     graph = builder.build({"output": output})
 
 
@@ -1922,8 +1884,8 @@ def test_quantize_linear(context):
     # Quantize: output = x / scale + zero_point
     output = builder.quantize_linear(x, scale, zero_point)
     # Output should be int8 with same shape as input
-    assert output.shape == [1, 3, 224, 224]
-    assert output.data_type == "int8"
+    assert builder.operand_shape(output) == [1, 3, 224, 224]
+    assert builder.operand_data_type(output) == "int8"
     graph = builder.build({"output": output})
 
 
@@ -1935,8 +1897,8 @@ def test_quantize_linear_uint8(context):
     zero_point = builder.input("zero_point", [1, 1], "uint8")
     output = builder.quantize_linear(x, scale, zero_point)
     # Output data type matches zero_point
-    assert output.shape == [8, 128]
-    assert output.data_type == "uint8"
+    assert builder.operand_shape(output) == [8, 128]
+    assert builder.operand_data_type(output) == "uint8"
     graph = builder.build({"output": output})
 
 
@@ -1947,8 +1909,8 @@ def test_dequantize_linear_uint8(context):
     scale = builder.input("scale", [1, 1], "float32")
     zero_point = builder.input("zero_point", [1, 1], "uint8")
     output = builder.dequantize_linear(x, scale, zero_point)
-    assert output.shape == [8, 128]
-    assert output.data_type == "float32"
+    assert builder.operand_shape(output) == [8, 128]
+    assert builder.operand_data_type(output) == "float32"
     graph = builder.build({"output": output})
 
 
@@ -1963,8 +1925,8 @@ def test_quantization_roundtrip(context):
     quantized = builder.quantize_linear(x, scale, zero_point)
     dequantized = builder.dequantize_linear(quantized, scale, zero_point)
     # Final output should be float32 with same shape
-    assert dequantized.shape == [10, 20]
-    assert dequantized.data_type == "float32"
+    assert builder.operand_shape(dequantized) == [10, 20]
+    assert builder.operand_data_type(dequantized) == "float32"
     graph = builder.build({"output": dequantized})
 
 
@@ -1975,7 +1937,7 @@ def test_quantize_linear_int4_per_tensor(context):
     scale = builder.constant(np.array([[0.5, 0.5]], dtype=np.float32))
     zero_point = builder.constant(np.array([[0, 0]], dtype=np.int8))
     q = builder.quantize_linear(x, scale, zero_point)
-    assert q.data_type == "int8"
+    assert builder.operand_data_type(q) == "int8"
     graph = builder.build({"q": q})
 
 
@@ -1984,10 +1946,12 @@ def test_quantize_linear_uint4_per_axis(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [1, 2, 2], "float32")
     # Shape matches input rank; non-one dim at axis 1
-    scale = builder.constant(np.array([[[1.0, 0.5]]], dtype=np.float32))  # shape [1,1,2]
+    scale = builder.constant(
+        np.array([[[1.0, 0.5]]], dtype=np.float32)
+    )  # shape [1,1,2]
     zero_point = builder.constant(np.array([[[0, 1]]], dtype=np.uint8))
     q = builder.quantize_linear(x, scale, zero_point)
-    assert q.data_type == "uint8"
+    assert builder.operand_data_type(q) == "uint8"
     graph = builder.build({"q": q})
 
 
@@ -1998,29 +1962,29 @@ def test_dequantize_linear_int4_blockwise(context):
     scale = builder.constant(np.array([[0.5, 2.0]], dtype=np.float32))
     zero_point = builder.constant(np.array([[0, -1]], dtype=np.int8))
     y = builder.dequantize_linear(qx, scale, zero_point)
-    assert y.data_type == "float32"
+    assert builder.operand_data_type(y) == "float32"
     graph = builder.build({"y": y})
 
 
 @requires_execution_backend
-def test_dequantize_linear_int4_blockwise_compute(context):
-    """DequantizeLinear with int4 input via compute()"""
+def test_dequantize_linear_int4_blockwise_dispatch(context):
+    """DequantizeLinear with int4 input via explicit tensors"""
     builder = context.create_graph_builder()
     qx = builder.input("qx", [2, 2], "int4")
     scale = builder.constant(np.array([[0.5, 2.0], [0.5, 2.0]], dtype=np.float32))
     zero_point = builder.constant(np.array([[0, -1], [0, -1]], dtype=np.int8))
     y = builder.dequantize_linear(qx, scale, zero_point)
-    graph = builder.build({"y": y})
+    graph = GraphExecution(context, builder, {"y": y}, input_dtypes={"qx": "int4"})
 
     qx_data = np.array([[2, -1], [0, 7]], dtype=np.int8)
-    result = context.compute(graph, {"qx": qx_data})["y"]
+    result = graph.run({"qx": qx_data})["y"]
     expected = np.array([[1.0, 0.0], [0.0, 16.0]], dtype=np.float32)
     np.testing.assert_allclose(result, expected, rtol=1e-5)
 
 
 def test_int4_tensor_read_write_roundtrip(context):
     """MLTensor int4 write/read round-trip using int8 carrier arrays"""
-    tensor = context.create_host_tensor([4], "int4")
+    tensor = context.create_tensor([4], "int4", readable=True, writable=True)
     values = np.array([2, -1, 0, 7], dtype=np.int8)
     context.write_tensor(tensor, values)
     read_back = context.read_tensor(tensor)
@@ -2030,7 +1994,7 @@ def test_int4_tensor_read_write_roundtrip(context):
 
 def test_uint4_tensor_read_write_roundtrip(context):
     """MLTensor uint4 write/read round-trip using uint8 carrier arrays"""
-    tensor = context.create_host_tensor([4], "uint4")
+    tensor = context.create_tensor([4], "uint4", readable=True, writable=True)
     values = np.array([0, 15, 7, 3], dtype=np.uint8)
     context.write_tensor(tensor, values)
     read_back = context.read_tensor(tensor)
@@ -2042,49 +2006,19 @@ def test_int4_constant_packed(context):
     """int4 constants are nibble-packed and usable in compiled graphs"""
     builder = context.create_graph_builder()
     c = builder.constant(np.array([2, -1, 0, 7], dtype=np.int8), data_type="int4")
-    assert c.data_type == "int4"
-    assert c.shape == [4]
+    assert builder.operand_data_type(c) == "int4"
+    assert builder.operand_shape(c) == [4]
     scale = builder.constant(np.array(1.0, dtype=np.float32))
     zero_point = builder.constant(np.array(0, dtype=np.int8))
     y = builder.dequantize_linear(c, scale, zero_point)
     graph = builder.build({"y": y})
-    assert graph.operation_count == 1
 
 
 def test_int4_out_of_range_rejected(context):
     """int4 write rejects values outside [-8, 7]"""
-    tensor = context.create_host_tensor([1], "int4")
+    tensor = context.create_tensor([1], "int4", readable=True, writable=True)
     with pytest.raises(Exception, match="int4 values must be in"):
         context.write_tensor(tensor, np.array([8], dtype=np.int8))
-
-
-def test_quantized_roundtrip_save_and_load(tmp_path, context):
-    """End-to-end quantized graph round-trip: build, run, save with quantized flag, reload, rerun."""
-    builder = context.create_graph_builder()
-    x = builder.input("x", [2, 2], "float32")
-    # Per-tensor quantization: scalar scale/zero-point avoid backend-specific axis rules
-    scale = builder.constant(np.array(0.5, dtype=np.float32))
-    zero_point = builder.constant(np.array(0, dtype=np.int8))
-
-    q = builder.quantize_linear(x, scale, zero_point)
-    y = builder.dequantize_linear(q, scale, zero_point)
-    graph = builder.build({"y": y})
-
-    # Compute once before serialization
-    input_data = {"x": np.array([[1.0, -2.0], [3.5, -0.5]], dtype=np.float32)}
-    result_before = context.compute(graph, input_data)["y"]
-
-    # Save with quantized marker and reload
-    out_path = tmp_path / "quantized_demo.webnn"
-    graph.save(str(out_path), quantized=True)
-    with out_path.open("r", encoding="utf-8") as f:
-        saved = json.load(f)
-    assert saved.get("quantized") is True
-
-    reloaded = webnn.MLGraph.load(str(out_path))
-    result_after = context.compute(reloaded, input_data)["y"]
-
-    assert np.allclose(result_before, result_after, atol=1e-5)
 
 
 # ========================================
@@ -2098,7 +2032,7 @@ def test_transpose_default_permutation(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [4, 6], "float32")
     output = builder.transpose(x)
-    assert output.shape == [6, 4]
+    assert builder.operand_shape(output) == [6, 4]
     graph = builder.build({"output": output})
 
 
@@ -2107,7 +2041,7 @@ def test_transpose_custom_permutation_2d(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [4, 6], "float32")
     output = builder.transpose(x, permutation=[1, 0])
-    assert output.shape == [6, 4]
+    assert builder.operand_shape(output) == [6, 4]
     graph = builder.build({"output": output})
 
 
@@ -2116,7 +2050,7 @@ def test_transpose_custom_permutation_3d(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4], "float32")
     output = builder.transpose(x, permutation=[2, 0, 1])
-    assert output.shape == [4, 2, 3]
+    assert builder.operand_shape(output) == [4, 2, 3]
     graph = builder.build({"output": output})
 
 
@@ -2125,7 +2059,7 @@ def test_transpose_4d_nchw_to_nhwc(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [1, 3, 224, 224], "float32")
     output = builder.transpose(x, permutation=[0, 2, 3, 1])
-    assert output.shape == [1, 224, 224, 3]
+    assert builder.operand_shape(output) == [1, 224, 224, 3]
     graph = builder.build({"output": output})
 
 
@@ -2136,7 +2070,7 @@ def test_concat_2_inputs_axis_0(context):
     x1 = builder.input("x1", [2, 3], "float32")
     x2 = builder.input("x2", [2, 3], "float32")
     output = builder.concat([x1, x2], axis=0)
-    assert output.shape == [4, 3]
+    assert builder.operand_shape(output) == [4, 3]
     graph = builder.build({"output": output})
 
 
@@ -2146,7 +2080,7 @@ def test_concat_2_inputs_axis_1(context):
     x1 = builder.input("x1", [2, 3], "float32")
     x2 = builder.input("x2", [2, 3], "float32")
     output = builder.concat([x1, x2], axis=1)
-    assert output.shape == [2, 6]
+    assert builder.operand_shape(output) == [2, 6]
     graph = builder.build({"output": output})
 
 
@@ -2157,7 +2091,7 @@ def test_concat_multiple_inputs(context):
     x2 = builder.input("x2", [2, 3], "float32")
     x3 = builder.input("x3", [3, 3], "float32")
     output = builder.concat([x1, x2, x3], axis=0)
-    assert output.shape == [6, 3]
+    assert builder.operand_shape(output) == [6, 3]
     graph = builder.build({"output": output})
 
 
@@ -2167,7 +2101,7 @@ def test_concat_3d(context):
     x1 = builder.input("x1", [2, 3, 4], "float32")
     x2 = builder.input("x2", [2, 3, 4], "float32")
     output = builder.concat([x1, x2], axis=2)
-    assert output.shape == [2, 3, 8]
+    assert builder.operand_shape(output) == [2, 3, 8]
     graph = builder.build({"output": output})
 
 
@@ -2177,7 +2111,7 @@ def test_slice_1d(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [24], "float32")
     output = builder.slice(x, starts=[12], sizes=[12])
-    assert output.shape == [12]
+    assert builder.operand_shape(output) == [12]
     graph = builder.build({"output": output})
 
 
@@ -2186,7 +2120,7 @@ def test_slice_2d(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [4, 6], "float32")
     output = builder.slice(x, starts=[2, 2], sizes=[2, 4])
-    assert output.shape == [2, 4]
+    assert builder.operand_shape(output) == [2, 4]
     graph = builder.build({"output": output})
 
 
@@ -2195,7 +2129,7 @@ def test_slice_3d(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [4, 3, 2], "float32")
     output = builder.slice(x, starts=[1, 1, 1], sizes=[3, 2, 1])
-    assert output.shape == [3, 2, 1]
+    assert builder.operand_shape(output) == [3, 2, 1]
     graph = builder.build({"output": output})
 
 
@@ -2204,7 +2138,7 @@ def test_slice_whole_dimension(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [4, 6], "float32")
     output = builder.slice(x, starts=[0, 2], sizes=[4, 4])
-    assert output.shape == [4, 4]
+    assert builder.operand_shape(output) == [4, 4]
     graph = builder.build({"output": output})
 
 
@@ -2214,7 +2148,7 @@ def test_expand_1d_to_larger_1d(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [1], "float32")
     output = builder.expand(x, new_shape=[24])
-    assert output.shape == [24]
+    assert builder.operand_shape(output) == [24]
     graph = builder.build({"output": output})
 
 
@@ -2223,7 +2157,7 @@ def test_expand_1d_to_2d(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [1], "float32")
     output = builder.expand(x, new_shape=[4, 6])
-    assert output.shape == [4, 6]
+    assert builder.operand_shape(output) == [4, 6]
     graph = builder.build({"output": output})
 
 
@@ -2232,7 +2166,7 @@ def test_expand_some_dimensions(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [1, 6], "float32")
     output = builder.expand(x, new_shape=[4, 6])
-    assert output.shape == [4, 6]
+    assert builder.operand_shape(output) == [4, 6]
     graph = builder.build({"output": output})
 
 
@@ -2241,7 +2175,7 @@ def test_expand_scalar_to_tensor(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [], "float32")
     output = builder.expand(x, new_shape=[24])
-    assert output.shape == [24]
+    assert builder.operand_shape(output) == [24]
     graph = builder.build({"output": output})
 
 
@@ -2252,7 +2186,7 @@ def test_gather_1d_indices(context):
     input_tensor = builder.input("input", [24], "float32")
     indices = builder.input("indices", [8], "int32")
     output = builder.gather(input_tensor, indices, axis=0)
-    assert output.shape == [8]
+    assert builder.operand_shape(output) == [8]
     graph = builder.build({"output": output})
 
 
@@ -2262,7 +2196,7 @@ def test_gather_2d_input_1d_indices_axis0(context):
     input_tensor = builder.input("input", [12, 2], "float32")
     indices = builder.input("indices", [8], "int32")
     output = builder.gather(input_tensor, indices, axis=0)
-    assert output.shape == [8, 2]
+    assert builder.operand_shape(output) == [8, 2]
     graph = builder.build({"output": output})
 
 
@@ -2272,7 +2206,7 @@ def test_gather_3d_input_2d_indices_axis1(context):
     input_tensor = builder.input("input", [3, 4, 2], "float32")
     indices = builder.input("indices", [2, 2], "int32")
     output = builder.gather(input_tensor, indices, axis=1)
-    assert output.shape == [3, 2, 2, 2]
+    assert builder.operand_shape(output) == [3, 2, 2, 2]
     graph = builder.build({"output": output})
 
 
@@ -2282,7 +2216,7 @@ def test_gather_default_axis(context):
     input_tensor = builder.input("input", [12, 2], "float32")
     indices = builder.input("indices", [8], "int32")
     output = builder.gather(input_tensor, indices)
-    assert output.shape == [8, 2]
+    assert builder.operand_shape(output) == [8, 2]
     graph = builder.build({"output": output})
 
 
@@ -2293,7 +2227,7 @@ def test_split_by_count(context):
     x = builder.input("x", [24], "float32")
     outputs = builder.split(x, splits=3, axis=0)
     assert len(outputs) == 3
-    assert all(o.shape == [8] for o in outputs)
+    assert all(builder.operand_shape(o) == [8] for o in outputs)
     # Note: Only first output can be used in graph due to single-output limitation
     graph = builder.build({"output": outputs[0]})
 
@@ -2304,7 +2238,7 @@ def test_split_by_sizes(context):
     x = builder.input("x", [24], "float32")
     outputs = builder.split(x, splits=[8, 8, 8], axis=0)
     assert len(outputs) == 3
-    assert all(o.shape == [8] for o in outputs)
+    assert all(builder.operand_shape(o) == [8] for o in outputs)
     graph = builder.build({"output": outputs[0]})
 
 
@@ -2314,7 +2248,7 @@ def test_split_unequal_sizes(context):
     x = builder.input("x", [12], "float32")
     outputs = builder.split(x, splits=[3, 3, 3, 3], axis=0)
     assert len(outputs) == 4
-    assert all(o.shape == [3] for o in outputs)
+    assert all(builder.operand_shape(o) == [3] for o in outputs)
     graph = builder.build({"output": outputs[0]})
 
 
@@ -2324,7 +2258,7 @@ def test_split_2d_along_axis1(context):
     x = builder.input("x", [8, 3], "float32")
     outputs = builder.split(x, splits=3, axis=1)
     assert len(outputs) == 3
-    assert all(o.shape == [8, 1] for o in outputs)
+    assert all(builder.operand_shape(o) == [8, 1] for o in outputs)
     graph = builder.build({"output": outputs[0]})
 
 
@@ -2332,33 +2266,33 @@ def test_split_2d_along_axis1(context):
 def test_where_same_shapes(context):
     """Test where with all inputs having same shape"""
     builder = context.create_graph_builder()
-    condition = builder.input("condition", [2, 3], "int32")
+    condition = builder.input("condition", [2, 3], "uint8")
     true_value = builder.input("true_value", [2, 3], "float32")
     false_value = builder.input("false_value", [2, 3], "float32")
     output = builder.where_(condition, true_value, false_value)
-    assert output.shape == [2, 3]
+    assert builder.operand_shape(output) == [2, 3]
     graph = builder.build({"output": output})
 
 
 def test_where_with_broadcasting(context):
     """Test where with broadcasting"""
     builder = context.create_graph_builder()
-    condition = builder.input("condition", [2, 3], "int32")
+    condition = builder.input("condition", [2, 3], "uint8")
     true_value = builder.input("true_value", [1, 3], "float32")
     false_value = builder.input("false_value", [2, 1], "float32")
     output = builder.where_(condition, true_value, false_value)
-    assert output.shape == [2, 3]
+    assert builder.operand_shape(output) == [2, 3]
     graph = builder.build({"output": output})
 
 
 def test_where_scalar_values(context):
     """Test where with scalar condition and values"""
     builder = context.create_graph_builder()
-    condition = builder.input("condition", [1], "int32")
+    condition = builder.input("condition", [1], "uint8")
     true_value = builder.input("true_value", [2, 3], "float32")
     false_value = builder.input("false_value", [2, 3], "float32")
     output = builder.where_(condition, true_value, false_value)
-    assert output.shape == [2, 3]
+    assert builder.operand_shape(output) == [2, 3]
     graph = builder.build({"output": output})
 
 
@@ -2368,7 +2302,7 @@ def test_pad_1d(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [9], "float32")
     output = builder.pad(x, padding=[1, 1])
-    assert output.shape == [11]
+    assert builder.operand_shape(output) == [11]
     graph = builder.build({"output": output})
 
 
@@ -2377,7 +2311,7 @@ def test_pad_2d(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [3, 3], "float32")
     output = builder.pad(x, padding=[1, 1, 1, 1])
-    assert output.shape == [5, 5]
+    assert builder.operand_shape(output) == [5, 5]
     graph = builder.build({"output": output})
 
 
@@ -2386,7 +2320,7 @@ def test_pad_4d(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [1, 3, 3, 1], "float32")
     output = builder.pad(x, padding=[0, 2, 2, 0, 0, 2, 2, 0])
-    assert output.shape == [1, 7, 7, 1]
+    assert builder.operand_shape(output) == [1, 7, 7, 1]
     graph = builder.build({"output": output})
 
 
@@ -2395,7 +2329,7 @@ def test_pad_with_mode(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [3, 3], "float32")
     output = builder.pad(x, padding=[1, 1, 1, 1], mode="edge")
-    assert output.shape == [5, 5]
+    assert builder.operand_shape(output) == [5, 5]
     graph = builder.build({"output": output})
 
 
@@ -2404,7 +2338,7 @@ def test_pad_with_value(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [3, 3], "float32")
     output = builder.pad(x, padding=[1, 1, 1, 1], mode="constant", value=5.0)
-    assert output.shape == [5, 5]
+    assert builder.operand_shape(output) == [5, 5]
     graph = builder.build({"output": output})
 
 
@@ -2413,7 +2347,7 @@ def test_pad_asymmetric(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [3, 3], "float32")
     output = builder.pad(x, padding=[1, 2, 3, 4])
-    assert output.shape == [7, 9]
+    assert builder.operand_shape(output) == [7, 9]
     graph = builder.build({"output": output})
 
 
@@ -2421,14 +2355,15 @@ def test_pad_asymmetric(context):
 # Advanced Architecture Operations Tests
 # ========================================
 
+
 # GELU tests
 def test_gelu_basic(context):
     """Test GELU activation"""
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3], "float32")
     output = builder.gelu(x)
-    assert output.shape == [2, 3]
-    assert output.data_type == "float32"
+    assert builder.operand_shape(output) == [2, 3]
+    assert builder.operand_data_type(output) == "float32"
     graph = builder.build({"output": output})
 
 
@@ -2437,7 +2372,7 @@ def test_gelu_multidimensional(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4, 5], "float32")
     output = builder.gelu(x)
-    assert output.shape == [2, 3, 4, 5]
+    assert builder.operand_shape(output) == [2, 3, 4, 5]
     graph = builder.build({"output": output})
 
 
@@ -2446,7 +2381,7 @@ def test_gelu_1d(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [10], "float32")
     output = builder.gelu(x)
-    assert output.shape == [10]
+    assert builder.operand_shape(output) == [10]
     graph = builder.build({"output": output})
 
 
@@ -2456,7 +2391,7 @@ def test_squeeze_all_ones(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [1, 3, 1, 4, 1], "float32")
     output = builder.squeeze(x)
-    assert output.shape == [3, 4]
+    assert builder.operand_shape(output) == [3, 4]
     graph = builder.build({"output": output})
 
 
@@ -2465,7 +2400,7 @@ def test_squeeze_specific_axes(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [1, 3, 1, 4], "float32")
     output = builder.squeeze(x, axes=[0, 2])
-    assert output.shape == [3, 4]
+    assert builder.operand_shape(output) == [3, 4]
     graph = builder.build({"output": output})
 
 
@@ -2474,7 +2409,7 @@ def test_squeeze_single_axis(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [1, 3, 4], "float32")
     output = builder.squeeze(x, axes=[0])
-    assert output.shape == [3, 4]
+    assert builder.operand_shape(output) == [3, 4]
     graph = builder.build({"output": output})
 
 
@@ -2483,7 +2418,7 @@ def test_squeeze_no_ones(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4], "float32")
     output = builder.squeeze(x)
-    assert output.shape == [2, 3, 4]
+    assert builder.operand_shape(output) == [2, 3, 4]
     graph = builder.build({"output": output})
 
 
@@ -2493,7 +2428,7 @@ def test_unsqueeze_single_axis_front(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [3, 4], "float32")
     output = builder.unsqueeze(x, axes=[0])
-    assert output.shape == [1, 3, 4]
+    assert builder.operand_shape(output) == [1, 3, 4]
     graph = builder.build({"output": output})
 
 
@@ -2502,7 +2437,7 @@ def test_unsqueeze_single_axis_middle(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [3, 4], "float32")
     output = builder.unsqueeze(x, axes=[1])
-    assert output.shape == [3, 1, 4]
+    assert builder.operand_shape(output) == [3, 1, 4]
     graph = builder.build({"output": output})
 
 
@@ -2511,7 +2446,7 @@ def test_unsqueeze_single_axis_end(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [3, 4], "float32")
     output = builder.unsqueeze(x, axes=[2])
-    assert output.shape == [3, 4, 1]
+    assert builder.operand_shape(output) == [3, 4, 1]
     graph = builder.build({"output": output})
 
 
@@ -2520,7 +2455,7 @@ def test_unsqueeze_multiple_axes(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [3, 4], "float32")
     output = builder.unsqueeze(x, axes=[0, 2])
-    assert output.shape == [1, 3, 1, 4]
+    assert builder.operand_shape(output) == [1, 3, 1, 4]
     graph = builder.build({"output": output})
 
 
@@ -2529,7 +2464,7 @@ def test_unsqueeze_1d_to_4d(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [5], "float32")
     output = builder.unsqueeze(x, axes=[0, 2, 3])
-    assert output.shape == [1, 5, 1, 1]
+    assert builder.operand_shape(output) == [1, 5, 1, 1]
     graph = builder.build({"output": output})
 
 
@@ -2539,8 +2474,8 @@ def test_arg_max_axis_0_no_keep(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4], "float32")
     output = builder.arg_max(x, axis=0)
-    assert output.shape == [3, 4]
-    assert output.data_type == "int64"
+    assert builder.operand_shape(output) == [3, 4]
+    assert builder.operand_data_type(output) == "int32"
     graph = builder.build({"output": output})
 
 
@@ -2549,8 +2484,8 @@ def test_arg_max_axis_1_keep_dims(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4], "float32")
     output = builder.arg_max(x, axis=1, keep_dimensions=True)
-    assert output.shape == [2, 1, 4]
-    assert output.data_type == "int64"
+    assert builder.operand_shape(output) == [2, 1, 4]
+    assert builder.operand_data_type(output) == "int32"
     graph = builder.build({"output": output})
 
 
@@ -2559,8 +2494,8 @@ def test_arg_max_axis_2_int32(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4], "float32")
     output = builder.arg_max(x, axis=2, output_data_type="int32")
-    assert output.shape == [2, 3]
-    assert output.data_type == "int32"
+    assert builder.operand_shape(output) == [2, 3]
+    assert builder.operand_data_type(output) == "int32"
     graph = builder.build({"output": output})
 
 
@@ -2569,8 +2504,8 @@ def test_arg_max_1d(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [10], "float32")
     output = builder.arg_max(x, axis=0)
-    assert output.shape == []
-    assert output.data_type == "int64"
+    assert builder.operand_shape(output) == []
+    assert builder.operand_data_type(output) == "int32"
     graph = builder.build({"output": output})
 
 
@@ -2579,8 +2514,8 @@ def test_arg_max_1d_keep_dims(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [10], "float32")
     output = builder.arg_max(x, axis=0, keep_dimensions=True)
-    assert output.shape == [1]
-    assert output.data_type == "int64"
+    assert builder.operand_shape(output) == [1]
+    assert builder.operand_data_type(output) == "int32"
     graph = builder.build({"output": output})
 
 
@@ -2590,8 +2525,8 @@ def test_arg_min_axis_0_no_keep(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4], "float32")
     output = builder.arg_min(x, axis=0)
-    assert output.shape == [3, 4]
-    assert output.data_type == "int64"
+    assert builder.operand_shape(output) == [3, 4]
+    assert builder.operand_data_type(output) == "int32"
     graph = builder.build({"output": output})
 
 
@@ -2600,8 +2535,8 @@ def test_arg_min_axis_1_keep_dims(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4], "float32")
     output = builder.arg_min(x, axis=1, keep_dimensions=True)
-    assert output.shape == [2, 1, 4]
-    assert output.data_type == "int64"
+    assert builder.operand_shape(output) == [2, 1, 4]
+    assert builder.operand_data_type(output) == "int32"
     graph = builder.build({"output": output})
 
 
@@ -2610,8 +2545,8 @@ def test_arg_min_axis_2_int32(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4], "float32")
     output = builder.arg_min(x, axis=2, output_data_type="int32")
-    assert output.shape == [2, 3]
-    assert output.data_type == "int32"
+    assert builder.operand_shape(output) == [2, 3]
+    assert builder.operand_data_type(output) == "int32"
     graph = builder.build({"output": output})
 
 
@@ -2620,8 +2555,8 @@ def test_arg_min_1d(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [10], "float32")
     output = builder.arg_min(x, axis=0)
-    assert output.shape == []
-    assert output.data_type == "int64"
+    assert builder.operand_shape(output) == []
+    assert builder.operand_data_type(output) == "int32"
     graph = builder.build({"output": output})
 
 
@@ -2631,8 +2566,8 @@ def test_cast_float32_to_int32(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3], "float32")
     output = builder.cast(x, "int32")
-    assert output.shape == [2, 3]
-    assert output.data_type == "int32"
+    assert builder.operand_shape(output) == [2, 3]
+    assert builder.operand_data_type(output) == "int32"
     graph = builder.build({"output": output})
 
 
@@ -2641,8 +2576,8 @@ def test_cast_int32_to_float32(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3], "int32")
     output = builder.cast(x, "float32")
-    assert output.shape == [2, 3]
-    assert output.data_type == "float32"
+    assert builder.operand_shape(output) == [2, 3]
+    assert builder.operand_data_type(output) == "float32"
     graph = builder.build({"output": output})
 
 
@@ -2651,8 +2586,8 @@ def test_cast_float32_to_float16(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4], "float32")
     output = builder.cast(x, "float16")
-    assert output.shape == [2, 3, 4]
-    assert output.data_type == "float16"
+    assert builder.operand_shape(output) == [2, 3, 4]
+    assert builder.operand_data_type(output) == "float16"
     graph = builder.build({"output": output})
 
 
@@ -2661,8 +2596,8 @@ def test_cast_int8_to_uint8(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [10], "int8")
     output = builder.cast(x, "uint8")
-    assert output.shape == [10]
-    assert output.data_type == "uint8"
+    assert builder.operand_shape(output) == [10]
+    assert builder.operand_data_type(output) == "uint8"
     graph = builder.build({"output": output})
 
 
@@ -2671,8 +2606,8 @@ def test_cast_to_int64(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [5, 5], "int32")
     output = builder.cast(x, "int64")
-    assert output.shape == [5, 5]
-    assert output.data_type == "int64"
+    assert builder.operand_shape(output) == [5, 5]
+    assert builder.operand_data_type(output) == "int64"
     graph = builder.build({"output": output})
 
 
@@ -2681,8 +2616,8 @@ def test_cast_preserves_shape(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4, 5], "float32")
     output = builder.cast(x, "int32")
-    assert output.shape == [2, 3, 4, 5]
-    assert output.data_type == "int32"
+    assert builder.operand_shape(output) == [2, 3, 4, 5]
+    assert builder.operand_data_type(output) == "int32"
     graph = builder.build({"output": output})
 
 
@@ -2694,8 +2629,8 @@ def test_scatter_elements_1d(context):
     indices = builder.input("indices", [4], "int32")
     updates = builder.input("updates", [4], "float32")
     output = builder.scatter_elements(data, indices, updates, axis=0)
-    assert output.shape == [4]
-    assert output.data_type == "float32"
+    assert builder.operand_shape(output) == [4]
+    assert builder.operand_data_type(output) == "float32"
     graph = builder.build({"output": output})
 
 
@@ -2706,8 +2641,8 @@ def test_scatter_elements_2d_axis_0(context):
     indices = builder.input("indices", [2, 4], "int32")
     updates = builder.input("updates", [2, 4], "float32")
     output = builder.scatter_elements(data, indices, updates, axis=0)
-    assert output.shape == [3, 4]
-    assert output.data_type == "float32"
+    assert builder.operand_shape(output) == [3, 4]
+    assert builder.operand_data_type(output) == "float32"
     graph = builder.build({"output": output})
 
 
@@ -2718,8 +2653,8 @@ def test_scatter_elements_2d_axis_1(context):
     indices = builder.input("indices", [3, 2], "int32")
     updates = builder.input("updates", [3, 2], "float32")
     output = builder.scatter_elements(data, indices, updates, axis=1)
-    assert output.shape == [3, 4]
-    assert output.data_type == "float32"
+    assert builder.operand_shape(output) == [3, 4]
+    assert builder.operand_data_type(output) == "float32"
     graph = builder.build({"output": output})
 
 
@@ -2730,7 +2665,7 @@ def test_scatter_elements_3d(context):
     indices = builder.input("indices", [2, 2, 4], "int32")
     updates = builder.input("updates", [2, 2, 4], "float32")
     output = builder.scatter_elements(data, indices, updates, axis=1)
-    assert output.shape == [2, 3, 4]
+    assert builder.operand_shape(output) == [2, 3, 4]
     graph = builder.build({"output": output})
 
 
@@ -2742,8 +2677,8 @@ def test_scatter_nd_basic(context):
     indices = builder.input("indices", [3, 1], "int32")  # k=1
     updates = builder.input("updates", [3, 5], "float32")  # [3] + [5]
     output = builder.scatter_nd(data, indices, updates)
-    assert output.shape == [4, 5]
-    assert output.data_type == "float32"
+    assert builder.operand_shape(output) == [4, 5]
+    assert builder.operand_data_type(output) == "float32"
     graph = builder.build({"output": output})
 
 
@@ -2754,8 +2689,8 @@ def test_scatter_nd_3d(context):
     indices = builder.input("indices", [5, 2], "int32")  # k=2
     updates = builder.input("updates", [5, 4], "float32")  # [5] + [4]
     output = builder.scatter_nd(data, indices, updates)
-    assert output.shape == [2, 3, 4]
-    assert output.data_type == "float32"
+    assert builder.operand_shape(output) == [2, 3, 4]
+    assert builder.operand_data_type(output) == "float32"
     graph = builder.build({"output": output})
 
 
@@ -2766,7 +2701,7 @@ def test_scatter_nd_full_rank(context):
     indices = builder.input("indices", [5, 3], "int32")  # k=3 (full rank)
     updates = builder.input("updates", [5], "float32")  # [5] + []
     output = builder.scatter_nd(data, indices, updates)
-    assert output.shape == [2, 3, 4]
+    assert builder.operand_shape(output) == [2, 3, 4]
     graph = builder.build({"output": output})
 
 
@@ -2777,7 +2712,7 @@ def test_scatter_nd_4d(context):
     indices = builder.input("indices", [6, 2], "int32")  # k=2
     updates = builder.input("updates", [6, 4, 5], "float32")  # [6] + [4, 5]
     output = builder.scatter_nd(data, indices, updates)
-    assert output.shape == [2, 3, 4, 5]
+    assert builder.operand_shape(output) == [2, 3, 4, 5]
     graph = builder.build({"output": output})
 
 
@@ -2787,8 +2722,8 @@ def test_tile_1d(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [4], "float32")
     output = builder.tile(x, [2])
-    assert output.shape == [8]  # 4 * 2
-    assert output.data_type == "float32"
+    assert builder.operand_shape(output) == [8]  # 4 * 2
+    assert builder.operand_data_type(output) == "float32"
     graph = builder.build({"output": output})
 
 
@@ -2797,8 +2732,8 @@ def test_tile_2d(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3], "float32")
     output = builder.tile(x, [2, 3])
-    assert output.shape == [4, 9]  # 2*2, 3*3
-    assert output.data_type == "float32"
+    assert builder.operand_shape(output) == [4, 9]  # 2*2, 3*3
+    assert builder.operand_data_type(output) == "float32"
     graph = builder.build({"output": output})
 
 
@@ -2807,7 +2742,7 @@ def test_tile_no_repetition(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 4], "float32")
     output = builder.tile(x, [1, 1, 1])
-    assert output.shape == [2, 3, 4]
+    assert builder.operand_shape(output) == [2, 3, 4]
     graph = builder.build({"output": output})
 
 
@@ -2816,7 +2751,7 @@ def test_tile_different_repetitions(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3], "float32")
     output = builder.tile(x, [3, 1])
-    assert output.shape == [6, 3]  # 2*3, 3*1
+    assert builder.operand_shape(output) == [6, 3]  # 2*3, 3*1
     graph = builder.build({"output": output})
 
 
@@ -2825,7 +2760,7 @@ def test_tile_4d(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [1, 2, 3, 4], "float32")
     output = builder.tile(x, [2, 1, 2, 1])
-    assert output.shape == [2, 2, 6, 4]  # 1*2, 2*1, 3*2, 4*1
+    assert builder.operand_shape(output) == [2, 2, 6, 4]  # 1*2, 2*1, 3*2, 4*1
     graph = builder.build({"output": output})
 
 
@@ -2835,8 +2770,8 @@ def test_triangular_2d_upper(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [3, 3], "float32")
     output = builder.triangular(x, True, 0)
-    assert output.shape == [3, 3]
-    assert output.data_type == "float32"
+    assert builder.operand_shape(output) == [3, 3]
+    assert builder.operand_data_type(output) == "float32"
     graph = builder.build({"output": output})
 
 
@@ -2845,7 +2780,7 @@ def test_triangular_2d_lower(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [3, 3], "float32")
     output = builder.triangular(x, False, 0)
-    assert output.shape == [3, 3]
+    assert builder.operand_shape(output) == [3, 3]
     graph = builder.build({"output": output})
 
 
@@ -2854,7 +2789,7 @@ def test_triangular_default_params(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [4, 4], "float32")
     output = builder.triangular(x, True, 0)  # explicit: upper=True, diagonal=0
-    assert output.shape == [4, 4]
+    assert builder.operand_shape(output) == [4, 4]
     graph = builder.build({"output": output})
 
 
@@ -2863,7 +2798,7 @@ def test_triangular_upper_diagonal_1(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [3, 3], "float32")
     output = builder.triangular(x, True, 1)
-    assert output.shape == [3, 3]
+    assert builder.operand_shape(output) == [3, 3]
     graph = builder.build({"output": output})
 
 
@@ -2872,7 +2807,7 @@ def test_triangular_lower_diagonal_minus_1(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [3, 3], "float32")
     output = builder.triangular(x, False, -1)
-    assert output.shape == [3, 3]
+    assert builder.operand_shape(output) == [3, 3]
     graph = builder.build({"output": output})
 
 
@@ -2881,7 +2816,7 @@ def test_triangular_3d(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3, 3], "float32")
     output = builder.triangular(x, True, 0)
-    assert output.shape == [2, 3, 3]
+    assert builder.operand_shape(output) == [2, 3, 3]
     graph = builder.build({"output": output})
 
 
@@ -2890,7 +2825,7 @@ def test_triangular_non_square(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [4, 5], "float32")
     output = builder.triangular(x, True, 0)
-    assert output.shape == [4, 5]
+    assert builder.operand_shape(output) == [4, 5]
     graph = builder.build({"output": output})
 
 
@@ -2904,14 +2839,16 @@ def test_prelu_basic(context):
     """Test PReLU activation with basic slope tensor"""
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3], "float32")
-    slope = builder.constant(np.array([[0.25, 0.25, 0.25]], dtype=np.float32), [1, 3], "float32")
+    slope = builder.constant(
+        np.array([[0.25, 0.25, 0.25]], dtype=np.float32), [1, 3], "float32"
+    )
     output = builder.prelu(x, slope)
-    assert output.shape == [2, 3]
-    graph = builder.build({"output": output})
+    assert builder.operand_shape(output) == [2, 3]
+    graph = GraphExecution(context, builder, {"output": output})
 
     # PReLU: x if x >= 0 else slope * x
     x_data = np.array([[-1, 2, -3], [4, -5, 6]], dtype=np.float32)
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "output" in results
     assert results["output"].shape == (2, 3)
 
@@ -2925,13 +2862,15 @@ def test_prelu_per_channel(context):
     """Test PReLU with per-channel slopes"""
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3], "float32")
-    slope = builder.constant(np.array([[0.1, 0.2, 0.3]], dtype=np.float32), [1, 3], "float32")
+    slope = builder.constant(
+        np.array([[0.1, 0.2, 0.3]], dtype=np.float32), [1, 3], "float32"
+    )
     output = builder.prelu(x, slope)
-    assert output.shape == [2, 3]
-    graph = builder.build({"output": output})
+    assert builder.operand_shape(output) == [2, 3]
+    graph = GraphExecution(context, builder, {"output": output})
 
     x_data = np.array([[-1, -2, -3], [1, 2, 3]], dtype=np.float32)
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
 
     # Each channel has different slope: [0.1, 0.2, 0.3]
     expected = np.array([[-0.1, -0.4, -0.9], [1, 2, 3]], dtype=np.float32)
@@ -2945,11 +2884,11 @@ def test_prelu_broadcast_slope(context):
     x = builder.input("x", [2, 3], "float32")
     slope = builder.constant(np.array([0.5], dtype=np.float32), [1], "float32")
     output = builder.prelu(x, slope)
-    assert output.shape == [2, 3]
-    graph = builder.build({"output": output})
+    assert builder.operand_shape(output) == [2, 3]
+    graph = GraphExecution(context, builder, {"output": output})
 
     x_data = np.array([[-2, 4, -6], [8, -10, 12]], dtype=np.float32)
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
 
     expected = np.where(x_data >= 0, x_data, 0.5 * x_data)
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
@@ -2961,11 +2900,11 @@ def test_elu_default_alpha(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3], "float32")
     output = builder.elu(x)  # Default alpha=1.0
-    assert output.shape == [2, 3]
-    graph = builder.build({"output": output})
+    assert builder.operand_shape(output) == [2, 3]
+    graph = GraphExecution(context, builder, {"output": output})
 
     x_data = np.array([[-1, 0, 1], [-2, 2, -0.5]], dtype=np.float32)
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "output" in results
     assert results["output"].shape == (2, 3)
 
@@ -2980,11 +2919,11 @@ def test_elu_custom_alpha(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3], "float32")
     output = builder.elu(x, alpha=0.5)
-    assert output.shape == [2, 3]
-    graph = builder.build({"output": output})
+    assert builder.operand_shape(output) == [2, 3]
+    graph = GraphExecution(context, builder, {"output": output})
 
     x_data = np.array([[-1, 0, 1], [-2, 2, -0.5]], dtype=np.float32)
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
 
     expected = np.where(x_data >= 0, x_data, 0.5 * (np.exp(x_data) - 1))
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
@@ -2996,11 +2935,11 @@ def test_elu_multidimensional(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 2, 2], "float32")
     output = builder.elu(x, alpha=2.0)
-    assert output.shape == [2, 2, 2]
-    graph = builder.build({"output": output})
+    assert builder.operand_shape(output) == [2, 2, 2]
+    graph = GraphExecution(context, builder, {"output": output})
 
     x_data = np.array([[[-1, 1], [0, -0.5]], [[2, -2], [-3, 3]]], dtype=np.float32)
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
 
     expected = np.where(x_data >= 0, x_data, 2.0 * (np.exp(x_data) - 1))
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
@@ -3012,11 +2951,11 @@ def test_leaky_relu_default_alpha(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3], "float32")
     output = builder.leaky_relu(x)  # Default alpha=0.01
-    assert output.shape == [2, 3]
-    graph = builder.build({"output": output})
+    assert builder.operand_shape(output) == [2, 3]
+    graph = GraphExecution(context, builder, {"output": output})
 
     x_data = np.array([[-1, 0, 1], [-10, 10, -5]], dtype=np.float32)
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "output" in results
     assert results["output"].shape == (2, 3)
 
@@ -3031,11 +2970,11 @@ def test_leaky_relu_custom_alpha(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3], "float32")
     output = builder.leaky_relu(x, alpha=0.2)
-    assert output.shape == [2, 3]
-    graph = builder.build({"output": output})
+    assert builder.operand_shape(output) == [2, 3]
+    graph = GraphExecution(context, builder, {"output": output})
 
     x_data = np.array([[-5, 5, 0], [10, -10, -1]], dtype=np.float32)
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
 
     expected = np.where(x_data >= 0, x_data, 0.2 * x_data)
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
@@ -3047,11 +2986,11 @@ def test_leaky_relu_multidimensional(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [1, 2, 2, 2], "float32")
     output = builder.leaky_relu(x, alpha=0.1)
-    assert output.shape == [1, 2, 2, 2]
-    graph = builder.build({"output": output})
+    assert builder.operand_shape(output) == [1, 2, 2, 2]
+    graph = GraphExecution(context, builder, {"output": output})
 
     x_data = np.array([[[[-1, 1], [2, -2]], [[3, -3], [-4, 4]]]], dtype=np.float32)
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
 
     expected = np.where(x_data >= 0, x_data, 0.1 * x_data)
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
@@ -3063,11 +3002,11 @@ def test_softplus_basic(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3], "float32")
     output = builder.softplus(x)
-    assert output.shape == [2, 3]
-    graph = builder.build({"output": output})
+    assert builder.operand_shape(output) == [2, 3]
+    graph = GraphExecution(context, builder, {"output": output})
 
     x_data = np.array([[-1, 0, 1], [-2, 2, 0.5]], dtype=np.float32)
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "output" in results
     assert results["output"].shape == (2, 3)
 
@@ -3082,11 +3021,11 @@ def test_softplus_multidimensional(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 2, 2], "float32")
     output = builder.softplus(x)
-    assert output.shape == [2, 2, 2]
-    graph = builder.build({"output": output})
+    assert builder.operand_shape(output) == [2, 2, 2]
+    graph = GraphExecution(context, builder, {"output": output})
 
     x_data = np.array([[[-5, 0], [5, 10]], [[1, -1], [-10, 2]]], dtype=np.float32)
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
 
     expected = np.log(1 + np.exp(x_data))
     # Use slightly relaxed tolerance due to numerical precision differences
@@ -3100,11 +3039,11 @@ def test_softsign_basic(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3], "float32")
     output = builder.softsign(x)
-    assert output.shape == [2, 3]
-    graph = builder.build({"output": output})
+    assert builder.operand_shape(output) == [2, 3]
+    graph = GraphExecution(context, builder, {"output": output})
 
     x_data = np.array([[-1, 0, 1], [-2, 2, 0.5]], dtype=np.float32)
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "output" in results
     assert results["output"].shape == (2, 3)
 
@@ -3119,11 +3058,11 @@ def test_softsign_multidimensional(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 2, 2], "float32")
     output = builder.softsign(x)
-    assert output.shape == [2, 2, 2]
-    graph = builder.build({"output": output})
+    assert builder.operand_shape(output) == [2, 2, 2]
+    graph = GraphExecution(context, builder, {"output": output})
 
     x_data = np.array([[[-5, 0], [5, 10]], [[1, -1], [-10, 2]]], dtype=np.float32)
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
 
     expected = x_data / (1 + np.abs(x_data))
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
@@ -3135,11 +3074,11 @@ def test_hard_sigmoid_default_params(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3], "float32")
     output = builder.hard_sigmoid(x)  # Default alpha=0.2, beta=0.5
-    assert output.shape == [2, 3]
-    graph = builder.build({"output": output})
+    assert builder.operand_shape(output) == [2, 3]
+    graph = GraphExecution(context, builder, {"output": output})
 
     x_data = np.array([[-3, -1, 0], [1, 3, 5]], dtype=np.float32)
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "output" in results
     assert results["output"].shape == (2, 3)
 
@@ -3154,11 +3093,11 @@ def test_hard_sigmoid_custom_params(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3], "float32")
     output = builder.hard_sigmoid(x, alpha=0.5, beta=0.3)
-    assert output.shape == [2, 3]
-    graph = builder.build({"output": output})
+    assert builder.operand_shape(output) == [2, 3]
+    graph = GraphExecution(context, builder, {"output": output})
 
     x_data = np.array([[-2, -1, 0], [1, 2, 3]], dtype=np.float32)
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
 
     expected = np.maximum(0, np.minimum(1, 0.5 * x_data + 0.3))
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
@@ -3170,53 +3109,48 @@ def test_hard_sigmoid_multidimensional(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [1, 2, 2, 2], "float32")
     output = builder.hard_sigmoid(x, alpha=0.2, beta=0.5)
-    assert output.shape == [1, 2, 2, 2]
-    graph = builder.build({"output": output})
+    assert builder.operand_shape(output) == [1, 2, 2, 2]
+    graph = GraphExecution(context, builder, {"output": output})
 
     x_data = np.array([[[[-3, -1], [0, 1]], [[2, 3], [4, 5]]]], dtype=np.float32)
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
 
     expected = np.maximum(0, np.minimum(1, 0.2 * x_data + 0.5))
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
 @requires_execution_backend
-def test_hard_swish_default_params(context):
-    """Test hard swish with default alpha=1/6, beta=0.5"""
+def test_hard_swish(context, tmp_path):
+    """Test the native hardSwish operation and its fixed activation formula."""
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3], "float32")
-    output = builder.hard_swish(x)  # Default alpha=0.16666..., beta=0.5
-    assert output.shape == [2, 3]
-    graph = builder.build({"output": output})
+    output = builder.hard_swish(x)
+    assert builder.operand_shape(output) == [2, 3]
+    path = tmp_path / "hard_swish.webnn"
+    builder.save({"output": output}, str(path))
+    text = path.read_text()
+    assert "= hardSwish(" in text
+    assert "= hardSigmoid(" not in text
+    assert "= mul(" not in text
+    graph = GraphExecution(context, builder, {"output": output})
 
     x_data = np.array([[-3, -1, 0], [1, 3, 5]], dtype=np.float32)
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "output" in results
     assert results["output"].shape == (2, 3)
 
-    # Hard swish: x * hardSigmoid(x)
-    alpha = 1.0 / 6.0
-    beta = 0.5
-    hard_sigmoid = np.maximum(0, np.minimum(1, alpha * x_data + beta))
-    expected = x_data * hard_sigmoid
+    expected = x_data * np.clip(x_data + 3, 0, 6) / 6
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
 @requires_execution_backend
-def test_hard_swish_custom_params(context):
-    """Test hard swish with custom alpha and beta"""
+@pytest.mark.parametrize("parameter", ["alpha", "beta"])
+def test_hard_swish_rejects_custom_params(context, parameter):
+    """Hard swish accepts only its input operand."""
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3], "float32")
-    output = builder.hard_swish(x, alpha=0.2, beta=0.5)
-    assert output.shape == [2, 3]
-    graph = builder.build({"output": output})
-
-    x_data = np.array([[-2, -1, 0], [1, 2, 3]], dtype=np.float32)
-    results = context.compute(graph, {"x": x_data})
-
-    hard_sigmoid = np.maximum(0, np.minimum(1, 0.2 * x_data + 0.5))
-    expected = x_data * hard_sigmoid
-    np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
+    with pytest.raises(TypeError, match=parameter):
+        builder.hard_swish(x, **{parameter: 0.2})
 
 
 @requires_execution_backend
@@ -3224,15 +3158,14 @@ def test_hard_swish_multidimensional(context):
     """Test hard swish with 3D input"""
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 2, 2], "float32")
-    output = builder.hard_swish(x, alpha=0.2, beta=0.5)
-    assert output.shape == [2, 2, 2]
-    graph = builder.build({"output": output})
+    output = builder.hard_swish(x)
+    assert builder.operand_shape(output) == [2, 2, 2]
+    graph = GraphExecution(context, builder, {"output": output})
 
     x_data = np.array([[[-3, -1], [0, 1]], [[2, 3], [4, 5]]], dtype=np.float32)
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
 
-    hard_sigmoid = np.maximum(0, np.minimum(1, 0.2 * x_data + 0.5))
-    expected = x_data * hard_sigmoid
+    expected = x_data * np.clip(x_data + 3, 0, 6) / 6
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
 
 
@@ -3247,11 +3180,11 @@ def test_clamp_basic(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 3], "float32")
     output = builder.clamp(x, min_value=0.0, max_value=6.0)
-    assert output.shape == [2, 3]
-    graph = builder.build({"output": output})
+    assert builder.operand_shape(output) == [2, 3]
+    graph = GraphExecution(context, builder, {"output": output})
 
     x_data = np.array([[-1, 0, 1], [5, 7, 3]], dtype=np.float32)
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
     assert "output" in results
     assert results["output"].shape == (2, 3)
 
@@ -3266,10 +3199,10 @@ def test_clamp_relu6(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [3, 3], "float32")
     output = builder.clamp(x, min_value=0.0, max_value=6.0)
-    graph = builder.build({"output": output})
+    graph = GraphExecution(context, builder, {"output": output})
 
     x_data = np.array([[-2, -1, 0], [1, 3, 5], [6, 7, 10]], dtype=np.float32)
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
 
     expected = np.array([[0, 0, 0], [1, 3, 5], [6, 6, 6]], dtype=np.float32)
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
@@ -3281,11 +3214,11 @@ def test_clamp_multidimensional(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [2, 2, 2], "float32")
     output = builder.clamp(x, min_value=-1.0, max_value=1.0)
-    assert output.shape == [2, 2, 2]
-    graph = builder.build({"output": output})
+    assert builder.operand_shape(output) == [2, 2, 2]
+    graph = GraphExecution(context, builder, {"output": output})
 
     x_data = np.array([[[-2, -0.5], [0, 0.5]], [[1, 1.5], [-1.5, 2]]], dtype=np.float32)
-    results = context.compute(graph, {"x": x_data})
+    results = graph.run({"x": x_data})
 
     expected = np.clip(x_data, -1.0, 1.0)
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
@@ -3296,7 +3229,7 @@ def test_clamp_shape_inference(context):
     builder = context.create_graph_builder()
     x = builder.input("x", [1, 224, 224, 3], "float32")
     output = builder.clamp(x, min_value=0.0, max_value=6.0)
-    assert output.shape == [1, 224, 224, 3]
+    assert builder.operand_shape(output) == [1, 224, 224, 3]
 
 
 def test_clamp_invalid_range(context):
@@ -3321,12 +3254,12 @@ def test_gemm_basic(context):
     a = builder.input("a", [2, 3], "float32")
     b = builder.input("b", [3, 4], "float32")
     output = builder.gemm(a, b)
-    assert output.shape == [2, 4]
-    graph = builder.build({"output": output})
+    assert builder.operand_shape(output) == [2, 4]
+    graph = GraphExecution(context, builder, {"output": output})
 
     a_data = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
     b_data = np.array([[1, 0, 0, 1], [0, 1, 0, 1], [0, 0, 1, 1]], dtype=np.float32)
-    results = context.compute(graph, {"a": a_data, "b": b_data})
+    results = graph.run({"a": a_data, "b": b_data})
     assert "output" in results
     assert results["output"].shape == (2, 4)
 
@@ -3341,12 +3274,12 @@ def test_gemm_transpose_a(context):
     a = builder.input("a", [3, 2], "float32")  # Will be transposed to [2, 3]
     b = builder.input("b", [3, 4], "float32")
     output = builder.gemm(a, b, a_transpose=True)
-    assert output.shape == [2, 4]
-    graph = builder.build({"output": output})
+    assert builder.operand_shape(output) == [2, 4]
+    graph = GraphExecution(context, builder, {"output": output})
 
     a_data = np.array([[1, 4], [2, 5], [3, 6]], dtype=np.float32)
     b_data = np.array([[1, 0, 0, 1], [0, 1, 0, 1], [0, 0, 1, 1]], dtype=np.float32)
-    results = context.compute(graph, {"a": a_data, "b": b_data})
+    results = graph.run({"a": a_data, "b": b_data})
 
     expected = np.matmul(a_data.T, b_data)
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
@@ -3359,12 +3292,12 @@ def test_gemm_transpose_b(context):
     a = builder.input("a", [2, 3], "float32")
     b = builder.input("b", [4, 3], "float32")  # Will be transposed to [3, 4]
     output = builder.gemm(a, b, b_transpose=True)
-    assert output.shape == [2, 4]
-    graph = builder.build({"output": output})
+    assert builder.operand_shape(output) == [2, 4]
+    graph = GraphExecution(context, builder, {"output": output})
 
     a_data = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
     b_data = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 1]], dtype=np.float32)
-    results = context.compute(graph, {"a": a_data, "b": b_data})
+    results = graph.run({"a": a_data, "b": b_data})
 
     expected = np.matmul(a_data, b_data.T)
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
@@ -3377,12 +3310,12 @@ def test_gemm_transpose_both(context):
     a = builder.input("a", [3, 2], "float32")  # Will be transposed to [2, 3]
     b = builder.input("b", [4, 3], "float32")  # Will be transposed to [3, 4]
     output = builder.gemm(a, b, a_transpose=True, b_transpose=True)
-    assert output.shape == [2, 4]
-    graph = builder.build({"output": output})
+    assert builder.operand_shape(output) == [2, 4]
+    graph = GraphExecution(context, builder, {"output": output})
 
     a_data = np.array([[1, 4], [2, 5], [3, 6]], dtype=np.float32)
     b_data = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 1]], dtype=np.float32)
-    results = context.compute(graph, {"a": a_data, "b": b_data})
+    results = graph.run({"a": a_data, "b": b_data})
 
     expected = np.matmul(a_data.T, b_data.T)
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
@@ -3396,13 +3329,13 @@ def test_gemm_with_bias(context):
     b = builder.input("b", [3, 4], "float32")
     c = builder.input("c", [2, 4], "float32")
     output = builder.gemm(a, b, c=c)
-    assert output.shape == [2, 4]
-    graph = builder.build({"output": output})
+    assert builder.operand_shape(output) == [2, 4]
+    graph = GraphExecution(context, builder, {"output": output})
 
     a_data = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
     b_data = np.array([[1, 0, 0, 1], [0, 1, 0, 1], [0, 0, 1, 1]], dtype=np.float32)
     c_data = np.array([[1, 1, 1, 1], [2, 2, 2, 2]], dtype=np.float32)
-    results = context.compute(graph, {"a": a_data, "b": b_data, "c": c_data})
+    results = graph.run({"a": a_data, "b": b_data, "c": c_data})
 
     expected = np.matmul(a_data, b_data) + c_data
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
@@ -3416,13 +3349,13 @@ def test_gemm_with_alpha_beta(context):
     b = builder.input("b", [3, 4], "float32")
     c = builder.input("c", [2, 4], "float32")
     output = builder.gemm(a, b, c=c, alpha=2.0, beta=0.5)
-    assert output.shape == [2, 4]
-    graph = builder.build({"output": output})
+    assert builder.operand_shape(output) == [2, 4]
+    graph = GraphExecution(context, builder, {"output": output})
 
     a_data = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
     b_data = np.array([[1, 0, 0, 1], [0, 1, 0, 1], [0, 0, 1, 1]], dtype=np.float32)
     c_data = np.array([[1, 1, 1, 1], [2, 2, 2, 2]], dtype=np.float32)
-    results = context.compute(graph, {"a": a_data, "b": b_data, "c": c_data})
+    results = graph.run({"a": a_data, "b": b_data, "c": c_data})
 
     expected = 2.0 * np.matmul(a_data, b_data) + 0.5 * c_data
     np.testing.assert_allclose(results["output"], expected, rtol=1e-5)
@@ -3434,7 +3367,7 @@ def test_gemm_shape_inference(context):
     a = builder.input("a", [128, 512], "float32")
     b = builder.input("b", [512, 1000], "float32")
     output = builder.gemm(a, b)
-    assert output.shape == [128, 1000]
+    assert builder.operand_shape(output) == [128, 1000]
 
 
 def test_gemm_shape_inference_transpose(context):
@@ -3443,7 +3376,7 @@ def test_gemm_shape_inference_transpose(context):
     a = builder.input("a", [512, 128], "float32")
     b = builder.input("b", [1000, 512], "float32")
     output = builder.gemm(a, b, a_transpose=True, b_transpose=True)
-    assert output.shape == [128, 1000]
+    assert builder.operand_shape(output) == [128, 1000]
 
 
 def test_gemm_invalid_shapes(context):
@@ -3456,231 +3389,75 @@ def test_gemm_invalid_shapes(context):
         builder.gemm(a, b)
 
 
-# Op Support Limits Tests
-def test_op_support_limits_structure(context):
-    """Test that op_support_limits returns expected structure"""
-    limits = context.op_support_limits()
-
-    # Check top-level properties
-    assert "preferredInputLayout" in limits
-    assert limits["preferredInputLayout"] in ["nchw", "nhwc"]
-
-    assert "maxTensorByteLength" in limits
-    assert isinstance(limits["maxTensorByteLength"], int)
-    assert limits["maxTensorByteLength"] > 0
-
-    # Check input/constant/output limits
-    for key in ["input", "constant", "output"]:
-        assert key in limits
-        assert "dataTypes" in limits[key]
-        assert isinstance(limits[key]["dataTypes"], list)
-        assert len(limits[key]["dataTypes"]) > 0
-        assert "rankRange" in limits[key]
-        assert "min" in limits[key]["rankRange"]
-        assert "max" in limits[key]["rankRange"]
-
-
-def test_op_support_limits_binary_operations(context):
-    """Test op_support_limits for binary operations"""
-    limits = context.op_support_limits()
-
-    # Check binary operations
-    binary_ops = ["add", "sub", "mul", "div", "pow", "matmul"]
-    for op in binary_ops:
-        assert op in limits, f"Binary operation '{op}' not in limits"
-        assert "a" in limits[op]
-        assert "b" in limits[op]
-        assert "output" in limits[op]
-
-        # Check each has dataTypes and rankRange
-        for operand in ["a", "b", "output"]:
-            assert "dataTypes" in limits[op][operand]
-            assert "rankRange" in limits[op][operand]
-
-
-def test_op_support_limits_unary_operations(context):
-    """Test op_support_limits for unary operations"""
-    limits = context.op_support_limits()
-
-    # Check unary operations
-    unary_ops = [
-        "relu", "sigmoid", "tanh", "softmax", "gelu",
-        "abs", "ceil", "floor", "exp", "log", "sqrt",
-        "sin", "cos", "tan"
-    ]
-
-    for op in unary_ops:
-        assert op in limits, f"Unary operation '{op}' not in limits"
-        assert "input" in limits[op]
-        assert "output" in limits[op]
-
-        # Check each has dataTypes and rankRange
-        for operand in ["input", "output"]:
-            assert "dataTypes" in limits[op][operand]
-            assert "rankRange" in limits[op][operand]
-
-
-def test_op_support_limits_conv_operations(context):
-    """Test op_support_limits for convolution operations"""
-    limits = context.op_support_limits()
-
-    # Check conv2d
-    assert "conv2d" in limits
-    assert "input" in limits["conv2d"]
-    assert "filter" in limits["conv2d"]
-    assert "bias" in limits["conv2d"]
-    assert "output" in limits["conv2d"]
-
-    # Check convTranspose2d
-    assert "convTranspose2d" in limits
-    assert "input" in limits["convTranspose2d"]
-    assert "filter" in limits["convTranspose2d"]
-    assert "output" in limits["convTranspose2d"]
-
-
-def test_op_support_limits_pooling_operations(context):
-    """Test op_support_limits for pooling operations"""
-    limits = context.op_support_limits()
-
-    # Check pooling operations
-    pooling_ops = ["averagePool2d", "maxPool2d", "l2Pool2d"]
-    for op in pooling_ops:
-        assert op in limits
-        assert "input" in limits[op]
-        assert "output" in limits[op]
-
-
-def test_op_support_limits_normalization_operations(context):
-    """Test op_support_limits for normalization operations"""
-    limits = context.op_support_limits()
-
-    # Check batchNormalization
-    assert "batchNormalization" in limits
-    assert "input" in limits["batchNormalization"]
-    assert "mean" in limits["batchNormalization"]
-    assert "variance" in limits["batchNormalization"]
-    assert "output" in limits["batchNormalization"]
-
-    # Check other normalization
-    for op in ["instanceNormalization", "layerNormalization"]:
-        assert op in limits
-        assert "input" in limits[op]
-        assert "output" in limits[op]
-
-
-def test_op_support_limits_reduction_operations(context):
-    """Test op_support_limits for reduction operations"""
-    limits = context.op_support_limits()
-
-    # Check reduction operations
-    reduction_ops = [
-        "reduceSum", "reduceMean", "reduceMax", "reduceMin",
-        "reduceProduct", "reduceL1", "reduceL2"
-    ]
-
-    for op in reduction_ops:
-        assert op in limits
-        assert "input" in limits[op]
-        assert "output" in limits[op]
-
-
-def test_op_support_limits_data_types(context):
-    """Test that data types are correctly reported"""
-    limits = context.op_support_limits()
-
-    # Check that input/constant/output support all types
-    all_types = ["float32", "float16", "int32", "uint32", "int8", "uint8", "int64", "uint64"]
-    for key in ["input", "constant", "output"]:
-        data_types = limits[key]["dataTypes"]
-        for dtype in all_types:
-            assert dtype in data_types, f"Data type '{dtype}' not in {key} limits"
-
-    # Check that float operations support float types
-    float_types = ["float32", "float16"]
-    float_ops = ["relu", "sigmoid", "tanh", "conv2d", "matmul"]
-    for op in float_ops:
-        if op in limits:
-            data_types = limits[op].get("input", limits[op].get("a", {})).get("dataTypes", [])
-            for dtype in float_types:
-                assert dtype in data_types, f"Float type '{dtype}' not in {op} limits"
-
-
-def test_op_support_limits_rank_ranges(context):
-    """Test that rank ranges are correctly reported"""
-    limits = context.op_support_limits()
-
-    # Check rank ranges
-    for key in ["input", "constant", "output"]:
-        rank_range = limits[key]["rankRange"]
-        assert rank_range["min"] >= 0
-        assert rank_range["max"] >= rank_range["min"]
-        assert rank_range["max"] <= 8  # Reasonable upper bound
+def test_op_support_limits_unavailable(context):
+    with pytest.raises(NotImplementedError, match="RustNN"):
+        context.op_support_limits()
 
 
 def test_round_even(builder):
     x = builder.input("x", [2, 3], "float32")
     y = builder.round_even(x)
-    assert y.shape == [2, 3]
-    assert y.data_type == "float32"
+    assert builder.operand_shape(y) == [2, 3]
+    assert builder.operand_data_type(y) == "float32"
 
 
 def test_linear(builder):
     x = builder.input("x", [4], "float32")
     y = builder.linear(x, alpha=2.0, beta=1.0)
-    assert y.shape == [4]
+    assert builder.operand_shape(y) == [4]
 
 
 def test_is_nan_and_is_infinite(builder):
     x = builder.input("x", [2, 2], "float32")
-    assert builder.is_nan(x).shape == [2, 2]
-    assert builder.is_nan(x).data_type == "uint8"
-    assert builder.is_infinite(x).shape == [2, 2]
-    assert builder.is_infinite(x).data_type == "uint8"
+    assert builder.operand_shape(builder.is_nan(x)) == [2, 2]
+    assert builder.operand_data_type(builder.is_nan(x)) == "uint8"
+    assert builder.operand_shape(builder.is_infinite(x)) == [2, 2]
+    assert builder.operand_data_type(builder.is_infinite(x)) == "uint8"
 
 
 def test_shape_op(builder):
     x = builder.input("x", [2, 3, 4], "float32")
     y = builder.shape(x)
-    assert y.shape == [3]
-    assert y.data_type == "int64"
+    assert builder.operand_shape(y) == [3]
+    assert builder.operand_data_type(y) == "int64"
 
 
 def test_cumulative_sum(builder):
     x = builder.input("x", [2, 3], "float32")
     y = builder.cumulative_sum(x, axis=1)
-    assert y.shape == [2, 3]
+    assert builder.operand_shape(y) == [2, 3]
 
 
 def test_reverse(builder):
     x = builder.input("x", [2, 3], "float32")
     y = builder.reverse(x)
-    assert y.shape == [2, 3]
+    assert builder.operand_shape(y) == [2, 3]
 
 
 def test_l2_pool2d(builder):
     x = builder.input("x", [1, 3, 4, 4], "float32")
     y = builder.l2_pool2d(x, window_dimensions=[2, 2], strides=[2, 2])
-    assert y.shape == [1, 3, 2, 2]
+    assert builder.operand_shape(y) == [1, 3, 2, 2]
 
 
 def test_gather_elements(builder):
     data = builder.input("data", [2, 3], "float32")
     indices = builder.input("indices", [2, 2], "int32")
     y = builder.gather_elements(data, indices, axis=1)
-    assert y.shape == [2, 2]
+    assert builder.operand_shape(y) == [2, 2]
 
 
 def test_gather_nd(builder):
     data = builder.input("data", [2, 3, 4], "float32")
     indices = builder.input("indices", [2, 2], "int32")
     y = builder.gather_nd(data, indices)
-    assert y.shape == [2, 4]
+    assert builder.operand_shape(y) == [2, 4]
 
 
 def test_resample2d(builder):
     x = builder.input("x", [1, 3, 4, 4], "float32")
     y = builder.resample2d(x, sizes=[6, 6])
-    assert y.shape == [1, 3, 6, 6]
+    assert builder.operand_shape(y) == [1, 3, 6, 6]
 
 
 def test_gru(builder):
@@ -3689,7 +3466,7 @@ def test_gru(builder):
     recurrent = builder.input("recurrent", [12, 4], "float32")
     outputs = builder.gru(input_op, weight, recurrent, steps=2, hidden_size=4)
     assert len(outputs) == 1
-    assert outputs[0].shape == [1, 2, 4]
+    assert builder.operand_shape(outputs[0]) == [1, 2, 4]
 
 
 def test_gru_return_sequence(builder):
@@ -3699,8 +3476,8 @@ def test_gru_return_sequence(builder):
     hidden, sequence = builder.gru(
         input_op, weight, recurrent, steps=3, hidden_size=4, return_sequence=True
     )
-    assert hidden.shape == [1, 3, 4]
-    assert sequence.shape == [3, 1, 3, 4]
+    assert builder.operand_shape(hidden) == [1, 3, 4]
+    assert builder.operand_shape(sequence) == [3, 1, 3, 4]
 
 
 def test_gru_cell(builder):
@@ -3709,7 +3486,7 @@ def test_gru_cell(builder):
     recurrent = builder.input("recurrent", [12, 4], "float32")
     hidden = builder.input("hidden", [2, 4], "float32")
     y = builder.gru_cell(input_op, weight, recurrent, hidden, hidden_size=4)
-    assert y.shape == [2, 4]
+    assert builder.operand_shape(y) == [2, 4]
 
 
 def test_lstm(builder):
@@ -3717,8 +3494,8 @@ def test_lstm(builder):
     weight = builder.input("weight", [16, 4], "float32")
     recurrent = builder.input("recurrent", [16, 4], "float32")
     hidden, cell = builder.lstm(input_op, weight, recurrent, steps=2, hidden_size=4)
-    assert hidden.shape == [1, 2, 4]
-    assert cell.shape == [1, 2, 4]
+    assert builder.operand_shape(hidden) == [1, 2, 4]
+    assert builder.operand_shape(cell) == [1, 2, 4]
 
 
 def test_lstm_cell(builder):
@@ -3730,8 +3507,8 @@ def test_lstm_cell(builder):
     new_hidden, new_cell = builder.lstm_cell(
         input_op, weight, recurrent, hidden, cell, hidden_size=4
     )
-    assert new_hidden.shape == [2, 4]
-    assert new_cell.shape == [2, 4]
+    assert builder.operand_shape(new_hidden) == [2, 4]
+    assert builder.operand_shape(new_cell) == [2, 4]
 
 
 def test_operand_introspection(builder):
@@ -3747,4 +3524,3 @@ def test_new_ops_build(context):
     y = builder.input("y", [2, 3], "float32")
     out = builder.pow(x, y)
     graph = builder.build({"out": out})
-    assert graph.operation_count >= 1

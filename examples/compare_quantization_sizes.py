@@ -23,10 +23,10 @@ def create_model_with_quantization(quant_dtype="float32", size_multiplier=1):
         size_multiplier: Scale up model size for more realistic comparison
 
     Returns:
-        MLGraph instance
+        Builder and named outputs, ready for native saving
     """
     ml = webnn.ML()
-    context = ml.create_context(device_type="cpu")
+    context = ml.create_context(accelerated=False)
     builder = context.create_graph_builder()
 
     # Create a model with some constants (simulating weights)
@@ -52,7 +52,7 @@ def create_model_with_quantization(quant_dtype="float32", size_multiplier=1):
         w1 = builder.constant(np.random.randn(base_size, base_size).astype(np.float16))
         w2 = builder.constant(np.random.randn(base_size, base_size).astype(np.float16))
 
-        # Cast to float32 for computation (WebNN compute is float32)
+        # Cast to float32 for computation (the graph input is float32)
         w1_f32 = builder.cast(w1, "float32")
         w2_f32 = builder.cast(w2, "float32")
 
@@ -80,8 +80,12 @@ def create_model_with_quantization(quant_dtype="float32", size_multiplier=1):
             w2_zp = int(-128 - w2_min / w2_scale)
 
             # Quantize weights
-            w1_quant = np.clip(np.round(w1_float / w1_scale) + w1_zp, -128, 127).astype(np.int8)
-            w2_quant = np.clip(np.round(w2_float / w2_scale) + w2_zp, -128, 127).astype(np.int8)
+            w1_quant = np.clip(np.round(w1_float / w1_scale) + w1_zp, -128, 127).astype(
+                np.int8
+            )
+            w2_quant = np.clip(np.round(w2_float / w2_scale) + w2_zp, -128, 127).astype(
+                np.int8
+            )
 
         else:  # int4
             # Int4: range -8 to 7 (stored as int8 internally)
@@ -91,17 +95,21 @@ def create_model_with_quantization(quant_dtype="float32", size_multiplier=1):
             w2_zp = int(-8 - w2_min / w2_scale)
 
             # Quantize to int4 range, store as int8
-            w1_quant = np.clip(np.round(w1_float / w1_scale) + w1_zp, -8, 7).astype(np.int8)
-            w2_quant = np.clip(np.round(w2_float / w2_scale) + w2_zp, -8, 7).astype(np.int8)
+            w1_quant = np.clip(np.round(w1_float / w1_scale) + w1_zp, -8, 7).astype(
+                np.int8
+            )
+            w2_quant = np.clip(np.round(w2_float / w2_scale) + w2_zp, -8, 7).astype(
+                np.int8
+            )
 
         # Create constants for quantized weights and scales
-        w1_q = builder.constant(w1_quant)
-        w2_q = builder.constant(w2_quant)
+        w1_q = builder.constant(w1_quant, data_type=quant_dtype)
+        w2_q = builder.constant(w2_quant, data_type=quant_dtype)
 
         scale1 = builder.constant(np.array(w1_scale, dtype=np.float32))
         scale2 = builder.constant(np.array(w2_scale, dtype=np.float32))
-        zp1 = builder.constant(np.array(w1_zp, dtype=np.int8))
-        zp2 = builder.constant(np.array(w2_zp, dtype=np.int8))
+        zp1 = builder.constant(np.array(w1_zp, dtype=np.int8), data_type=quant_dtype)
+        zp2 = builder.constant(np.array(w2_zp, dtype=np.int8), data_type=quant_dtype)
 
         # Dequantize for computation
         w1_f32 = builder.dequantize_linear(w1_q, scale1, zp1)
@@ -111,9 +119,7 @@ def create_model_with_quantization(quant_dtype="float32", size_multiplier=1):
         h2 = builder.relu(h1)
         output = builder.matmul(h2, w2_f32)
 
-    # Build graph
-    graph = builder.build({"output": output})
-    return graph
+    return builder, {"output": output}
 
 
 def compare_sizes(size_multiplier=1):
@@ -129,35 +135,40 @@ def compare_sizes(size_multiplier=1):
     print()
 
     levels = [
-        ("float32", "float32", False),
-        ("float16", "float16", False),
-        ("int8", "int8", True),
-        ("int4", "int4", True),
+        ("float32", "float32"),
+        ("float16", "float16"),
+        ("int8", "int8"),
+        ("int4", "int4"),
     ]
 
     results = {}
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        for dtype, name, quantized_flag in levels:
+        for dtype, name in levels:
             print(f"[{name.upper()}] Creating model...")
 
             try:
-                graph = create_model_with_quantization(dtype, size_multiplier)
+                builder, outputs = create_model_with_quantization(
+                    dtype, size_multiplier
+                )
 
                 # Save model
                 model_path = Path(tmpdir) / f"model_{name}.webnn"
-                graph.save(str(model_path), quantized=quantized_flag)
+                builder.save(outputs, str(model_path))
 
                 # Get file size
-                size_bytes = model_path.stat().st_size
+                size_bytes = (
+                    model_path.stat().st_size
+                    + model_path.with_suffix(".safetensors").stat().st_size
+                )
                 size_kb = size_bytes / 1024
                 size_mb = size_kb / 1024
 
                 results[name] = {
-                    'bytes': size_bytes,
-                    'kb': size_kb,
-                    'mb': size_mb,
-                    'path': model_path
+                    "bytes": size_bytes,
+                    "kb": size_kb,
+                    "mb": size_mb,
+                    "path": model_path,
                 }
 
                 print(f"  File size: {size_bytes:,} bytes ({size_kb:.2f} KB)")
@@ -165,6 +176,7 @@ def compare_sizes(size_multiplier=1):
             except Exception as e:
                 print(f"  [ERROR] Failed to create {name} model: {e}")
                 import traceback
+
                 traceback.print_exc()
                 results[name] = None
 
@@ -175,12 +187,12 @@ def compare_sizes(size_multiplier=1):
     print(f"{'Level':<12} {'Size (KB)':<15} {'Size (MB)':<15} {'vs Float32':<20}")
     print("-" * 80)
 
-    float32_size = results.get('float32', {}).get('kb', 0)
+    float32_size = results.get("float32", {}).get("kb", 0)
 
-    for name in ['float32', 'float16', 'int8', 'int4']:
+    for name in ["float32", "float16", "int8", "int4"]:
         if name in results and results[name]:
-            size_kb = results[name]['kb']
-            size_mb = results[name]['mb']
+            size_kb = results[name]["kb"]
+            size_mb = results[name]["mb"]
 
             if float32_size > 0:
                 ratio = (size_kb / float32_size) * 100
@@ -189,7 +201,9 @@ def compare_sizes(size_multiplier=1):
             else:
                 comparison = "N/A"
 
-            print(f"{name:<12} {size_kb:>10,.2f} KB   {size_mb:>10,.4f} MB   {comparison:<20}")
+            print(
+                f"{name:<12} {size_kb:>10,.2f} KB   {size_mb:>10,.4f} MB   {comparison:<20}"
+            )
 
     print("=" * 80)
 
@@ -197,19 +211,21 @@ def compare_sizes(size_multiplier=1):
     print("\nSTORAGE SAVINGS BREAKDOWN:")
     print("-" * 80)
 
-    if 'float32' in results and results['float32']:
-        baseline_bytes = results['float32']['bytes']
+    if "float32" in results and results["float32"]:
+        baseline_bytes = results["float32"]["bytes"]
 
-        for name in ['float16', 'int8', 'int4']:
+        for name in ["float16", "int8", "int4"]:
             if name in results and results[name]:
-                size_bytes = results[name]['bytes']
+                size_bytes = results[name]["bytes"]
                 saved_bytes = baseline_bytes - size_bytes
                 saved_kb = saved_bytes / 1024
                 saved_mb = saved_kb / 1024
                 percentage = (saved_bytes / baseline_bytes) * 100
 
                 print(f"\n{name.upper()} vs FLOAT32:")
-                print(f"  Saved: {saved_bytes:,} bytes ({saved_kb:.2f} KB / {saved_mb:.4f} MB)")
+                print(
+                    f"  Saved: {saved_bytes:,} bytes ({saved_kb:.2f} KB / {saved_mb:.4f} MB)"
+                )
                 print(f"  Reduction: {percentage:.1f}%")
                 print(f"  Compression ratio: {baseline_bytes / size_bytes:.2f}x")
 

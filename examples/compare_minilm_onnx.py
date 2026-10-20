@@ -23,11 +23,11 @@ import onnxruntime as ort
 import torch
 from transformers import AutoModel, AutoTokenizer
 import webnn
+from model_files import max_shape
 
 HF_MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"
-# Default to the local path mentioned in the instructions if it exists.
-DEFAULT_STATIC_ONNX = Path("/Users/tarekziade/Dev/all-MiniLM-L12-v2-webnn/model-static.onnx")
-DEFAULT_WEBNN_DIR = Path("/Users/tarekziade/Dev/all-MiniLM-L12-v2-webnn")
+DEFAULT_WEBNN_DIR = Path("models/all-MiniLM-L6-v2-webnn")
+DEFAULT_STATIC_ONNX = DEFAULT_WEBNN_DIR / "model-static.onnx"
 
 
 def mean_pool(token_embeddings: np.ndarray, attention_mask: np.ndarray) -> np.ndarray:
@@ -106,7 +106,9 @@ def compare_embeddings(
         euclid = float(np.linalg.norm(a[i] - b[i]))
         mse = float(np.mean((a[i] - b[i]) ** 2))
         mae = float(np.mean(np.abs(a[i] - b[i])))
-        print(f"Sentence {i+1}: cosine={cosine:.6f} euclid={euclid:.6f} mse={mse:.8f} mae={mae:.8f}")
+        print(
+            f"Sentence {i+1}: cosine={cosine:.6f} euclid={euclid:.6f} mse={mse:.8f} mae={mae:.8f}"
+        )
 
     print("-" * 70)
     print(
@@ -122,42 +124,25 @@ def compare_embeddings(
     print(verdict)
 
 
-def find_webnn_files(model_dir: Path) -> tuple[Path, Path, Path]:
-    webnn_file = model_dir / "model.webnn"
-    weights_file = model_dir / "model.weights"
-    manifest_file = model_dir / "manifest.json"
-    for f in (webnn_file, weights_file, manifest_file):
-        if not f.exists():
-            raise FileNotFoundError(f"Missing required file: {f}")
-    return webnn_file, weights_file, manifest_file
-
-
 def encode_webnn(
     texts: Iterable[str],
     tokenizer: AutoTokenizer,
     model_dir: Path,
     max_length: int,
-    export_onnx: Path | None = None,
 ) -> np.ndarray:
     # WebNN graph uses static [1, max_length] inputs; run one sentence at a time.
     ml = webnn.ML()
     context = ml.create_context(power_preference="default", accelerated=False)
-    webnn_file, weights_file, manifest_file = find_webnn_files(model_dir)
-    graph = webnn.MLGraph.load(
-        str(webnn_file), manifest_path=str(manifest_file), weights_path=str(weights_file)
-    )
-
-    if export_onnx:
-        try:
-            context.convert_to_onnx(graph, str(export_onnx))
-            print(f"[INFO] Exported WebNN graph to ONNX: {export_onnx}")
-        except Exception as exc:  # noqa: BLE001
-            print(f"[WARNING] Failed to export WebNN graph to ONNX: {exc}")
-
-    output_names = graph.get_output_names()
-    if not output_names:
-        raise RuntimeError("WebNN graph has no outputs")
-    output_name = output_names[0]
+    graph = context.load_graph(str(model_dir / "model.webnn"))
+    sources = {
+        name: context.create_tensor(max_shape(spec), spec["data_type"], writable=True)
+        for name, spec in graph.input_descriptors.items()
+    }
+    targets = {
+        name: context.create_tensor(max_shape(spec), spec["data_type"], readable=True)
+        for name, spec in graph.output_descriptors.items()
+    }
+    output_name = next(iter(targets))
 
     embeddings: list[np.ndarray] = []
     for text in texts:
@@ -178,8 +163,10 @@ def encode_webnn(
             "attention_mask": attention_mask,
             "token_type_ids": token_type_ids,
         }
-        results = context.compute(graph, inputs)
-        token_embeddings = results[output_name]
+        for name, tensor in sources.items():
+            context.write_tensor(tensor, inputs[name])
+        context.dispatch(graph, sources, targets)
+        token_embeddings = context.read_tensor(targets[output_name])
         sent_embedding = mean_pool(token_embeddings, attention_mask.astype(np.float32))
         embeddings.append(sent_embedding[0])
 
@@ -187,7 +174,9 @@ def encode_webnn(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Compare MiniLM embeddings across stages.")
+    parser = argparse.ArgumentParser(
+        description="Compare MiniLM embeddings across stages."
+    )
     parser.add_argument(
         "--onnx",
         type=Path,
@@ -224,11 +213,6 @@ def parse_args() -> argparse.Namespace:
         default=128,
         help="Max sequence length for the HF reference encode (defaults to match ONNX/WebNN).",
     )
-    parser.add_argument(
-        "--export-webnn-onnx",
-        type=Path,
-        help="If set, export loaded WebNN graph to this ONNX path before running comparisons.",
-    )
     return parser.parse_args()
 
 
@@ -258,22 +242,34 @@ def main() -> None:
     model = AutoModel.from_pretrained(args.hf_model_id)
 
     print("\n[INFO] Encoding with transformers (reference)")
-    ref_embeddings = encode_transformers(test_sentences, tokenizer, model, args.hf_max_length)
+    ref_embeddings = encode_transformers(
+        test_sentences, tokenizer, model, args.hf_max_length
+    )
 
     print("\n[INFO] Encoding with original ONNX")
     sess = ort.InferenceSession(str(args.onnx), providers=["CPUExecutionProvider"])
     onnx_embeddings = encode_onnx(test_sentences, tokenizer, sess, args.max_length)
 
-    compare_embeddings(ref_embeddings, onnx_embeddings, "Transformers", "ONNX (original export)")
+    compare_embeddings(
+        ref_embeddings, onnx_embeddings, "Transformers", "ONNX (original export)"
+    )
 
     if args.alt_onnx:
         if not args.alt_onnx.exists():
             raise SystemExit(f"Alt ONNX not found: {args.alt_onnx}")
         print("\n[INFO] Encoding with alternate ONNX")
-        alt_sess = ort.InferenceSession(str(args.alt_onnx), providers=["CPUExecutionProvider"])
-        alt_embeddings = encode_onnx(test_sentences, tokenizer, alt_sess, args.max_length)
-        compare_embeddings(ref_embeddings, alt_embeddings, "Transformers", "ONNX (alternate)")
-        compare_embeddings(onnx_embeddings, alt_embeddings, "ONNX (original)", "ONNX (alternate)")
+        alt_sess = ort.InferenceSession(
+            str(args.alt_onnx), providers=["CPUExecutionProvider"]
+        )
+        alt_embeddings = encode_onnx(
+            test_sentences, tokenizer, alt_sess, args.max_length
+        )
+        compare_embeddings(
+            ref_embeddings, alt_embeddings, "Transformers", "ONNX (alternate)"
+        )
+        compare_embeddings(
+            onnx_embeddings, alt_embeddings, "ONNX (original)", "ONNX (alternate)"
+        )
 
     if args.webnn_dir:
         if not args.webnn_dir.exists():
@@ -284,18 +280,11 @@ def main() -> None:
             tokenizer,
             args.webnn_dir,
             args.max_length,
-            export_onnx=args.export_webnn_onnx,
         )
         compare_embeddings(ref_embeddings, webnn_embeddings, "Transformers", "WebNN")
-        compare_embeddings(onnx_embeddings, webnn_embeddings, "ONNX (original)", "WebNN")
-
-    if args.export_webnn_onnx and args.export_webnn_onnx.exists():
-        print("\n[INFO] Encoding with exported WebNN->ONNX")
-        exported_sess = ort.InferenceSession(str(args.export_webnn_onnx), providers=["CPUExecutionProvider"])
-        exported_embeddings = encode_onnx(test_sentences, tokenizer, exported_sess, args.max_length)
-        compare_embeddings(ref_embeddings, exported_embeddings, "Transformers", "WebNN->ONNX export")
-        compare_embeddings(onnx_embeddings, exported_embeddings, "ONNX (original)", "WebNN->ONNX export")
-        compare_embeddings(webnn_embeddings, exported_embeddings, "WebNN", "WebNN->ONNX export")
+        compare_embeddings(
+            onnx_embeddings, webnn_embeddings, "ONNX (original)", "WebNN"
+        )
 
 
 if __name__ == "__main__":

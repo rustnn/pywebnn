@@ -114,6 +114,8 @@ def numpy_array_from_test_data(test_data: Dict[str, Any]) -> np.ndarray:
         return np.full(shape, fill, dtype=np_dtype)
 
     if dtype_str == "int64":
-        return np.array([_parse_wpt_int64_scalar(v) for v in data], dtype=np_dtype).reshape(shape)
+        return np.array(
+            [_parse_wpt_int64_scalar(v) for v in data], dtype=np_dtype
+        ).reshape(shape)
 
     return np.array(data, dtype=np_dtype).reshape(shape)

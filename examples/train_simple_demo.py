@@ -20,7 +20,6 @@ import json
 import numpy as np
 from pathlib import Path
 
-
 # Character-level vocabulary
 CHARS = " abcdefghijklmnopqrstuvwxyz.,!?-"
 CHAR_TO_IDX = {c: i for i, c in enumerate(CHARS)}
@@ -147,41 +146,45 @@ class SimpleCharModel:
             next_char = np.random.choice(self.vocab_size, p=probs)
             text.append(next_char)
 
-        return ''.join([IDX_TO_CHAR.get(idx, '?') for idx in text])
+        return "".join([IDX_TO_CHAR.get(idx, "?") for idx in text])
 
     def save(self, filename):
         """Save weights to JSON."""
         weights = {
-            'embed': self.embed.tolist(),
-            'W1': self.W1.tolist(),
-            'b1': self.b1.tolist(),
-            'W2': self.W2.tolist(),
-            'b2': self.b2.tolist(),
-            'vocab_size': self.vocab_size,
-            'hidden_size': self.hidden_size
+            "embed": self.embed.tolist(),
+            "W1": self.W1.tolist(),
+            "b1": self.b1.tolist(),
+            "W2": self.W2.tolist(),
+            "b2": self.b2.tolist(),
+            "vocab_size": self.vocab_size,
+            "hidden_size": self.hidden_size,
         }
-        with open(filename, 'w') as f:
+        with open(filename, "w") as f:
             json.dump(weights, f)
         print(f"✓ Saved weights to {filename}")
 
     def load(self, filename):
         """Load weights from JSON."""
-        with open(filename, 'r') as f:
+        with open(filename, "r") as f:
             weights = json.load(f)
-        self.embed = np.array(weights['embed'])
-        self.W1 = np.array(weights['W1'])
-        self.b1 = np.array(weights['b1'])
-        self.W2 = np.array(weights['W2'])
-        self.b2 = np.array(weights['b2'])
+        self.embed = np.array(weights["embed"])
+        self.W1 = np.array(weights["W1"])
+        self.b1 = np.array(weights["b1"])
+        self.W2 = np.array(weights["W2"])
+        self.b2 = np.array(weights["b2"])
         print(f"✓ Loaded weights from {filename}")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Simple working training demo")
-    parser.add_argument("--phrase", default="the quick brown fox jumps", help="Phrase to memorize")
+    parser.add_argument(
+        "--phrase", default="the quick brown fox jumps", help="Phrase to memorize"
+    )
     parser.add_argument("--epochs", type=int, default=100, help="Training epochs")
     parser.add_argument("--lr", type=float, default=0.1, help="Learning rate")
-    parser.add_argument("--save", default="simple_model.json", help="Where to save weights")
+    parser.add_argument(
+        "--save", default="simple_model.json", help="Where to save weights"
+    )
     args = parser.parse_args()
 
     # Convert phrase to indices
@@ -209,7 +212,9 @@ def main():
     # Test before training
     print("Before training:")
     print(f"  Loss: {model.compute_loss(phrase_indices):.4f}")
-    print(f"  Generated: '{model.generate(phrase_clean[:3], max_len=len(phrase_clean))}'")
+    print(
+        f"  Generated: '{model.generate(phrase_clean[:3], max_len=len(phrase_clean))}'"
+    )
     print()
 
     # Training loop

@@ -7,9 +7,7 @@ use pyo3::prelude::*;
 
 mod python;
 
-use python::{
-    PyML, PyMLContext, PyMLDeviceTensor, PyMLGraph, PyMLGraphBuilder, PyMLOperand, PyMLTensor,
-};
+use python::{PyML, PyMLContext, PyMLGraph, PyMLGraphBuilder, PyMLOperand, PyMLTensor};
 
 /// WebNN Python module
 #[pymodule]
@@ -20,6 +18,5 @@ fn _rustnn(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMLOperand>()?;
     m.add_class::<PyMLGraph>()?;
     m.add_class::<PyMLTensor>()?;
-    m.add_class::<PyMLDeviceTensor>()?;
     Ok(())
 }

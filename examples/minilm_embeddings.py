@@ -30,7 +30,9 @@ LOCAL_MODEL_DIR_ENV = os.environ.get("MINILM_LOCAL_MODEL_DIR")
 # 1) MINILM_MODEL_ID (explicit override, can be a Hub id or a local directory path)
 # 2) MINILM_LOCAL_MODEL_DIR (offline local cache)
 # 3) Default Hub model id
-MODEL_ID = os.environ.get("MINILM_MODEL_ID") or LOCAL_MODEL_DIR_ENV or DEFAULT_HUB_MODEL_ID
+MODEL_ID = (
+    os.environ.get("MINILM_MODEL_ID") or LOCAL_MODEL_DIR_ENV or DEFAULT_HUB_MODEL_ID
+)
 # WebNN graph uses static [1, 128] inputs; keep tokenizer config aligned.
 MAX_LEN = 128
 
@@ -43,6 +45,7 @@ except ImportError:
     sys.exit(1)
 
 import webnn
+from model_files import model_directory, max_shape
 
 
 def _debug_environment():
@@ -50,7 +53,9 @@ def _debug_environment():
     print("\n[DEBUG] Environment")
     print(f"  Python: {sys.version.split()[0]} ({sys.executable})")
     print(f"  Platform: {platform.platform()}")
-    print(f"  webnn version: {webnn.__version__ if hasattr(webnn, '__version__') else 'unknown'}")
+    print(
+        f"  webnn version: {webnn.__version__ if hasattr(webnn, '__version__') else 'unknown'}"
+    )
     print(f"  DYLD_LIBRARY_PATH: {os.environ.get('DYLD_LIBRARY_PATH', '')}")
     print(f"  MINILM_MODEL_ID: {os.environ.get('MINILM_MODEL_ID', '')}")
     print(f"  MINILM_LOCAL_MODEL_DIR: {os.environ.get('MINILM_LOCAL_MODEL_DIR', '')}")
@@ -65,7 +70,9 @@ def _debug_environment():
             sys.implementation.cache_tag.split("-", 1)[1]
         )
         print(f"  webnn package dir: {webnn_path}")
-        print(f"  webnn extension: {rustnn_ext if rustnn_ext.exists() else 'not found'}")
+        print(
+            f"  webnn extension: {rustnn_ext if rustnn_ext.exists() else 'not found'}"
+        )
         ort_libs = list(webnn_path.glob("**/libonnxruntime*"))
         coreml_libs = list(webnn_path.glob("**/coreml*.dylib"))
         print(f"  bundled ORT libs: {ort_libs if ort_libs else 'none found'}")
@@ -88,8 +95,11 @@ def _debug_probe_backend(context):
         builder = context.create_graph_builder()
         x = builder.input("x", [1], "float32")
         graph = builder.build({"x": x})
-        result = context.compute(graph, {"x": np.array([1.0], dtype=np.float32)})
-        output = result["x"]
+        source = context.create_tensor([1], "float32", writable=True)
+        target = context.create_tensor([1], "float32", readable=True)
+        context.write_tensor(source, np.array([1.0], dtype=np.float32))
+        context.dispatch(graph, {"x": source}, {"x": target})
+        output = context.read_tensor(target)
         print(f"  context: {context}")
         print(f"  output: {output}")
         if np.allclose(output, 0):
@@ -115,9 +125,7 @@ class TransformersEmbedder:
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_name, local_files_only=local_only
         )
-        self.model = AutoModel.from_pretrained(
-            model_name, local_files_only=local_only
-        )
+        self.model = AutoModel.from_pretrained(model_name, local_files_only=local_only)
         self.model.eval()  # Set to evaluation mode
         print("[OK] Transformers model loaded")
 
@@ -243,118 +251,37 @@ class WebNNEmbedder:
         self.graph = self._load_webnn_model()
         print("[OK] WebNN model loaded")
 
-    def _download_from_hub(self, model_id: str) -> Path:
-        """
-        Download model files from Hugging Face Hub using Hub class
-
-        Args:
-            model_id: Hugging Face model identifier
-
-        Returns:
-            Path to downloaded model directory
-        """
-        from huggingface_hub import snapshot_download
-
-        print(f"[INFO] Downloading model from Hugging Face Hub: {model_id}")
-
-        # Download all files and get the local directory
-        model_dir = snapshot_download(
-            repo_id=model_id, repo_type="model", local_dir_use_symlinks=False
-        )
-
-        print(f"[OK] Model downloaded to {model_dir}")
-        return Path(model_dir)
-
-    def _find_model_files(self, model_dir: Path) -> tuple[Path, Path, Path]:
-        """
-        Find model files in directory, handling different naming conventions
-
-        Returns:
-            Tuple of (webnn_file, weights_file, manifest_file)
-        """
-        # Try different naming conventions (Hub uses "model" naming)
-        webnn_candidates = [
-            model_dir / "model.webnn",
-            model_dir / "all-MiniLM-L6-v2.webnn",
-        ]
-        weights_candidates = [
-            model_dir / "model.weights",
-            model_dir / "all-MiniLM-L6-v2.weights",
-        ]
-        manifest_candidates = [
-            model_dir / "manifest.json",
-            model_dir / "all-MiniLM-L6-v2.manifest.json",
-        ]
-
-        # Find existing files
-        webnn_file = next((f for f in webnn_candidates if f.exists()), None)
-        weights_file = next((f for f in weights_candidates if f.exists()), None)
-        manifest_file = next((f for f in manifest_candidates if f.exists()), None)
-
-        if not webnn_file:
-            raise FileNotFoundError(
-                f"WebNN file not found. Tried: {[str(f) for f in webnn_candidates]}"
-            )
-        if not weights_file:
-            raise FileNotFoundError(
-                f"Weights file not found. Tried: {[str(f) for f in weights_candidates]}"
-            )
-        if not manifest_file:
-            raise FileNotFoundError(
-                f"Manifest file not found. Tried: {[str(f) for f in manifest_candidates]}"
-            )
-
-        return webnn_file, weights_file, manifest_file
-
     def _load_webnn_model(self):
-        """Load the WebNN graph using Hub and MLGraph.load()"""
-        # Create WebNN context
-        ml = webnn.ML()
-
-        # Use CPU or GPU based on device_type
-        if self.device_type == "cpu":
-            context = ml.create_context(power_preference="default", accelerated=False)
-        else:
-            context = ml.create_context(power_preference="high-performance", accelerated=True)
-
-        print(f"[INFO] Created WebNN context (accelerated={context.accelerated})")
+        """Load and compile with RustNN, then allocate reusable I/O tensors."""
+        context = webnn.ML().create_context(
+            accelerated=self.device_type != "cpu", backend="onnx"
+        )
         if self.debug:
             _debug_probe_backend(context)
-
-        # Check if model_id is a local path or hub identifier
-        model_path = Path(self.model_id)
-        if model_path.exists() and model_path.is_dir():
-            # Local path - find files manually
-            print(f"[INFO] Using local model directory: {model_path}")
-            webnn_file, weights_file, manifest_file = self._find_model_files(model_path)
-            model_files = {
-                'graph': str(webnn_file),
-                'weights': str(weights_file),
-                'manifest': str(manifest_file)
-            }
-        else:
-            # Download from Hugging Face Hub
-            print(f"[INFO] Downloading model from Hugging Face Hub: {self.model_id}")
-            hub = webnn.Hub()
-            model_files = hub.download_model(self.model_id)
-            print(f"[OK] Model downloaded")
-
-        # Load graph from files
-        print(f"[INFO] Loading graph...")
-        graph = webnn.MLGraph.load(
-            model_files['graph'],
-            manifest_path=model_files['manifest'],
-            weights_path=model_files['weights']
-        )
-        print(f"[OK] Graph loaded successfully")
-        print(f"    - Operand count: {graph.operand_count}")
-        print(f"    - Operation count: {graph.operation_count}")
-        print(f"    - Inputs: {graph.get_input_names()}")
-        print(f"    - Outputs: {graph.get_output_names()}")
-
+        directory = model_directory(self.model_id)
+        candidates = [directory / "model.webnn", directory / "all-MiniLM-L6-v2.webnn"]
+        path = next((path for path in candidates if path.exists()), None)
+        if path is None:
+            raise FileNotFoundError(f"No MiniLM graph found in {directory}")
+        graph = context.load_graph(str(path))
+        inputs = {
+            name: context.create_tensor(
+                max_shape(spec), spec["data_type"], writable=True
+            )
+            for name, spec in graph.input_descriptors.items()
+        }
+        outputs = {
+            name: context.create_tensor(
+                max_shape(spec), spec["data_type"], readable=True
+            )
+            for name, spec in graph.output_descriptors.items()
+        }
+        print(f"[OK] Compiled {path}; inputs: {list(inputs)}, outputs: {list(outputs)}")
         return {
             "context": context,
             "graph": graph,
+            "inputs": inputs,
+            "outputs": outputs,
         }
 
     def _mean_pooling(
@@ -395,7 +322,7 @@ class WebNNEmbedder:
         1. Tokenize input texts using transformers tokenizer
         2. Load WebNN graph from Hub or local files (in __init__)
         3. Prepare inputs as NumPy arrays
-        4. Execute inference using context.compute(graph, inputs)
+        4. Write reusable input tensors, dispatch, and read output tensors
         5. Apply mean pooling to token embeddings
         6. Normalize to unit length
 
@@ -406,16 +333,12 @@ class WebNNEmbedder:
         Returns:
             Embeddings array of shape [num_texts, 384]
 
-        Note:
-            Currently returns placeholder embeddings due to ONNX converter issue
-            with the expand operation. The WebNN graph loading and API integration
-            work correctly. See inline TODO for converter fix needed.
         """
         # The WebNN-exported graph uses static shapes [1, 128] for inputs,
         # so we run each sentence independently with fixed-length padding.
         context = self.graph["context"]
         graph = self.graph["graph"]
-        output_names = graph.get_output_names()
+        output_names = list(self.graph["outputs"])
         if len(output_names) == 0:
             raise RuntimeError("Graph has no outputs")
         output_name = output_names[0]
@@ -442,8 +365,10 @@ class WebNNEmbedder:
                 "token_type_ids": token_type_ids,
             }
 
-            results = context.compute(graph, inputs)
-            token_embeddings = results[output_name]
+            for name, tensor in self.graph["inputs"].items():
+                context.write_tensor(tensor, inputs[name])
+            context.dispatch(graph, self.graph["inputs"], self.graph["outputs"])
+            token_embeddings = context.read_tensor(self.graph["outputs"][output_name])
 
             sent_embedding = self._mean_pooling(
                 token_embeddings, attention_mask.astype(np.float32)
@@ -536,7 +461,9 @@ def compare_embeddings(
     elif avg_cosine > 0.95:
         print("\n[FAIL] Embeddings are SIMILAR (cosine > 0.95) but not VERY SIMILAR")
     elif avg_cosine > 0.80:
-        print("\n[FAIL] Embeddings are SOMEWHAT SIMILAR (cosine > 0.80) but not VERY SIMILAR")
+        print(
+            "\n[FAIL] Embeddings are SOMEWHAT SIMILAR (cosine > 0.80) but not VERY SIMILAR"
+        )
     else:
         print("\n[FAIL] Embeddings are DIFFERENT (cosine < 0.80)")
 

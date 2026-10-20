@@ -27,7 +27,7 @@ from text_generation_gpt import SimpleTransformerLM
 
 def load_text_data(file_path):
     """Load text from file."""
-    with open(file_path, 'r', encoding='utf-8') as f:
+    with open(file_path, "r", encoding="utf-8") as f:
         text = f.read()
     return text
 
@@ -41,15 +41,20 @@ def prepare_training_data(text, vocab_size=128, seq_len=32):
         y: target tokens (num_samples,)
     """
     # Convert to ASCII bytes (0-127)
-    data = np.array([b for b in text.encode('ascii', errors='ignore') if b < vocab_size], dtype=np.int32)
+    data = np.array(
+        [b for b in text.encode("ascii", errors="ignore") if b < vocab_size],
+        dtype=np.int32,
+    )
 
     if len(data) < seq_len + 1:
-        raise ValueError(f"Text too short. Need at least {seq_len + 1} characters, got {len(data)}")
+        raise ValueError(
+            f"Text too short. Need at least {seq_len + 1} characters, got {len(data)}"
+        )
 
     # Create sequences
     X, y = [], []
     for i in range(len(data) - seq_len):
-        X.append(data[i:i + seq_len])
+        X.append(data[i : i + seq_len])
         y.append(data[i + seq_len])
 
     return np.array(X), np.array(y)
@@ -68,7 +73,9 @@ def compute_loss(model, X_batch, y_batch):
         x_embedded = np.zeros((seq_len, model.d_model), dtype=np.float32)
         for j, token_id in enumerate(X_batch[i]):
             if token_id < model.vocab_size:
-                x_embedded[j, :] = model.token_embed[token_id, :] + model.pos_embed[j, :]
+                x_embedded[j, :] = (
+                    model.token_embed[token_id, :] + model.pos_embed[j, :]
+                )
 
         # Forward pass (simplified in NumPy)
         # Q, K, V
@@ -80,7 +87,9 @@ def compute_loss(model, X_batch, y_batch):
         attn_output = np.mean(V, axis=0, keepdims=True)  # (1, d_model)
 
         # Layer norm (simplified)
-        attn_output = (attn_output - np.mean(attn_output)) / (np.std(attn_output) + 1e-5)
+        attn_output = (attn_output - np.mean(attn_output)) / (
+            np.std(attn_output) + 1e-5
+        )
         attn_output = attn_output * model.ln_gamma + model.ln_beta
 
         # Feed-forward
@@ -124,7 +133,7 @@ def train_step(model, X_batch, y_batch, lr=0.05):
     unique_tokens = np.unique(np.concatenate([X_batch.flatten(), y_batch]))
 
     # Update embeddings for tokens that appear in this batch (more focused)
-    for token_id in unique_tokens[:min(10, len(unique_tokens))]:
+    for token_id in unique_tokens[: min(10, len(unique_tokens))]:
         if token_id < model.vocab_size:
             for dim in range(0, model.d_model, 4):  # Update every 4th dimension
                 model.token_embed[token_id, dim] += epsilon
@@ -136,7 +145,7 @@ def train_step(model, X_batch, y_batch, lr=0.05):
 
     # Update output layer more aggressively (most important for predictions)
     # Focus on columns corresponding to target tokens
-    for target in y_batch[:min(8, len(y_batch))]:
+    for target in y_batch[: min(8, len(y_batch))]:
         if target < model.vocab_size:
             # Update this target's column in W_out
             for i in range(0, model.d_model, 8):  # Every 8th row
@@ -200,10 +209,15 @@ def train(model, X, y, epochs=10, batch_size=32, lr=0.01):
 
             if (batch_idx + 1) % 10 == 0:
                 avg_loss = total_loss / (batch_idx + 1)
-                print(f"Epoch {epoch+1}/{epochs}, Batch {batch_idx+1}/{num_batches}, Loss: {avg_loss:.4f}", end='\r')
+                print(
+                    f"Epoch {epoch+1}/{epochs}, Batch {batch_idx+1}/{num_batches}, Loss: {avg_loss:.4f}",
+                    end="\r",
+                )
 
         avg_loss = total_loss / num_batches
-        print(f"Epoch {epoch+1}/{epochs} completed. Average loss: {avg_loss:.4f}                    ")
+        print(
+            f"Epoch {epoch+1}/{epochs} completed. Average loss: {avg_loss:.4f}                    "
+        )
 
     print("=" * 70)
     print("Training complete!")
@@ -258,7 +272,9 @@ def main():
 
     print("=" * 70)
     print("Training complete! You can now use the trained model:")
-    print(f"  python examples/text_generation_gpt.py --weights {args.save} --prompt \"Your text\" --tokens 50")
+    print(
+        f'  python examples/text_generation_gpt.py --weights {args.save} --prompt "Your text" --tokens 50'
+    )
     print("=" * 70)
 
 

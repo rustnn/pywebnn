@@ -1,5 +1,4 @@
-.PHONY: help setup setup-demos build test clean dev install lint fmt check all \
-	minilm-demo-hub mobilenet-demo-hub smollm-demo-hub run-all-demo run-all-demos
+.PHONY: help setup build test clean dev install lint fmt check all run-all-demo run-all-demos setup-demos minilm-demo-hub mobilenet-demo-hub smollm-demo-hub
 
 VENV_DIR = .venv
 
@@ -23,16 +22,12 @@ help:
 	@echo ""
 	@echo "Available targets:"
 	@echo "  setup       - Create virtual environment and install dependencies"
-	@echo "  setup-demos - Install demo dependencies (transformers, torch, Pillow)"
 	@echo "  dev         - Install package in development mode (requires setup first)"
 	@echo "  build       - Build wheel package"
 	@echo "  install     - Install from built wheel"
 	@echo "  test        - Run all Python tests"
 	@echo ""
 	@echo "Demo targets:"
-	@echo "  minilm-demo-hub      - Run MiniLM embeddings demo (Hugging Face Hub)"
-	@echo "  mobilenet-demo-hub   - Run MobileNetV2 classification demo (Hugging Face Hub)"
-	@echo "  smollm-demo-hub      - Run SmolLM text generation demo (Hugging Face Hub)"
 	@echo "  run-all-demo         - Run all end-to-end demos for CI verification"
 	@echo "  run-all-demos        - Alias for run-all-demo"
 	@echo "  lint        - Run linting checks (cargo fmt, clippy, black, mypy)"
@@ -46,13 +41,8 @@ setup:
 	$(PYTHON) -m venv $(VENV_DIR)
 	@echo "Installing development dependencies..."
 	$(VENV_PIP) install --upgrade pip
-	$(VENV_PIP) install maturin pytest pytest-asyncio numpy onnxruntime
+	$(VENV_PIP) install maturin pytest numpy onnxruntime
 	@echo "Virtual environment ready at $(VENV_DIR)"
-
-setup-demos: setup
-	@echo "Installing demo dependencies..."
-	$(VENV_PIP) install transformers torch Pillow requests --extra-index-url https://download.pytorch.org/whl/cpu
-	@echo "Demo dependencies installed"
 
 dev: setup
 	@echo "Building and installing pywebnn in development mode..."
@@ -112,91 +102,26 @@ clean:
 	find . -type f -name "*.so" -delete
 	@echo "Clean complete"
 
-# ==============================================================================
-# Demo Targets - End-to-end verification
-# ==============================================================================
+run-all-demo run-all-demos: dev
+	$(VENV_PYTHON) examples/python_simple.py
+	$(VENV_PYTHON) examples/python_matmul.py
+	$(VENV_PYTHON) examples/dispatch_example.py
+	$(VENV_PYTHON) examples/test_quantization_roundtrip.py
+	$(VENV_PYTHON) examples/kv_cache_device_tensors.py
+	$(VENV_PYTHON) examples/text_generation_gpt.py --tokens 3 --temperature 0
+	$(VENV_PYTHON) examples/text_generation_enhanced.py --use-kv-cache --tokens 3 --temperature 0
 
-RUN_ALL_DEMOS_LEVELS ?= none
+setup-demos: setup
+	$(VENV_PIP) install pillow huggingface_hub transformers torch tokenizers
 
 minilm-demo-hub: setup-demos dev
-	@echo "========================================================================"
-	@echo "Running all-MiniLM-L6-v2 demo (Hugging Face Hub)"
-	@echo "========================================================================"
-	@echo ""
-	@echo "Downloading model from Hugging Face Hub: tarekziade/all-MiniLM-L6-v2-webnn"
-	@echo "------------------------------------------------------------------------"
-	@ORT_DYLIB_PATH="$$(. $(VENV_ACTIVATE) && python tools/resolve_ort_dylib.py)" && \
-	echo "Using ORT_DYLIB_PATH=$$ORT_DYLIB_PATH" && \
-	MINILM_MODEL_ID=tarekziade/all-MiniLM-L6-v2-webnn ORT_DYLIB_PATH="$$ORT_DYLIB_PATH" $(VENV_DIR)/bin/python examples/minilm_embeddings.py
-	@echo ""
-	@echo "========================================================================"
-	@echo "Demo completed successfully!"
-	@echo "========================================================================"
+	$(VENV_PYTHON) examples/minilm_embeddings.py
 
 mobilenet-demo-hub: setup-demos dev
-	@echo "========================================================================"
-	@echo "Running MobileNetV2 (Hugging Face Hub)"
-	@echo "========================================================================"
-	@echo ""
-	@echo "Downloading model from Hugging Face Hub: tarekziade/mobilenet-webnn"
-	@echo "------------------------------------------------------------------------"
-	@ORT_DYLIB_PATH="$$(. $(VENV_ACTIVATE) && python tools/resolve_ort_dylib.py)" && \
-	echo "Using ORT_DYLIB_PATH=$$ORT_DYLIB_PATH" && \
-	ORT_DYLIB_PATH="$$ORT_DYLIB_PATH" $(VENV_DIR)/bin/python examples/mobilenetv2_from_hub.py examples/images/test.jpg --backend cpu
-	@echo ""
-	@echo "========================================================================"
-	@echo "Demo completed successfully!"
-	@echo "========================================================================"
+	$(VENV_PYTHON) examples/mobilenetv2_from_hub.py examples/images/test.jpg --backend cpu
 
 smollm-demo-hub: setup-demos dev
-	@echo "========================================================================"
-	@echo "Running SmolLM-135M generation demo (Hugging Face Hub)"
-	@echo "========================================================================"
-	@echo ""
-	@echo "Downloading model from Hugging Face Hub: tarekziade/SmolLM-135M-webnn"
-	@echo "------------------------------------------------------------------------"
-	@ORT_DYLIB_PATH="$$(. $(VENV_ACTIVATE) && python tools/resolve_ort_dylib.py)" && \
-	echo "Using ORT_DYLIB_PATH=$$ORT_DYLIB_PATH" && \
-	ORT_DYLIB_PATH="$$ORT_DYLIB_PATH" $(VENV_DIR)/bin/python examples/smollm_from_hub.py --backend cpu --max-new-tokens 15 --compare-transformers
-	@echo ""
-	@echo "========================================================================"
-	@echo "Demo completed successfully!"
-	@echo "========================================================================"
-
-run-all-demo: setup-demos dev
-	@echo "========================================================================"
-	@echo "Running All Demos (quantization=$(RUN_ALL_DEMOS_LEVELS))"
-	@echo "========================================================================"
-	@echo ""
-	@echo "Demo 1/5: Quantization Round-Trip Test"
-	@echo "------------------------------------------------------------------------"
-	@ORT_DYLIB_PATH="$$(. $(VENV_ACTIVATE) && python tools/resolve_ort_dylib.py)" && \
-	echo "Using ORT_DYLIB_PATH=$$ORT_DYLIB_PATH" && \
-	RUN_ALL_DEMOS_LEVELS='$(RUN_ALL_DEMOS_LEVELS)' ORT_DYLIB_PATH="$$ORT_DYLIB_PATH" $(VENV_DIR)/bin/python examples/test_quantization_roundtrip.py
-	@echo ""
-	@echo "Demo 2/5: MiniLM Embeddings (Hugging Face Hub)"
-	@echo "------------------------------------------------------------------------"
-	@RUN_ALL_DEMOS_LEVELS='$(RUN_ALL_DEMOS_LEVELS)' $(MAKE) minilm-demo-hub
-	@echo ""
-	@echo "Demo 3/5: MobileNetV2 Image Classification (Hugging Face Hub)"
-	@echo "------------------------------------------------------------------------"
-	@RUN_ALL_DEMOS_LEVELS='$(RUN_ALL_DEMOS_LEVELS)' $(MAKE) mobilenet-demo-hub
-	@echo ""
-	@echo "Demo 4/5: SmolLM-135M Text Generation (Hugging Face Hub)"
-	@echo "------------------------------------------------------------------------"
-	@RUN_ALL_DEMOS_LEVELS='$(RUN_ALL_DEMOS_LEVELS)' $(MAKE) smollm-demo-hub
-	@echo ""
-	@echo "Demo 5/5: KV Cache with Device Tensors"
-	@echo "------------------------------------------------------------------------"
-	@ORT_DYLIB_PATH="$$(. $(VENV_ACTIVATE) && python tools/resolve_ort_dylib.py)" && \
-	echo "Using ORT_DYLIB_PATH=$$ORT_DYLIB_PATH" && \
-	RUN_ALL_DEMOS_LEVELS='$(RUN_ALL_DEMOS_LEVELS)' ORT_DYLIB_PATH="$$ORT_DYLIB_PATH" $(VENV_DIR)/bin/python examples/kv_cache_device_tensors.py
-	@echo ""
-	@echo "========================================================================"
-	@echo "All demos completed successfully!"
-	@echo "========================================================================"
-
-run-all-demos: run-all-demo
+	$(VENV_PYTHON) examples/smollm_from_hub.py --backend cpu --max-new-tokens 15 --compare-transformers
 
 all: setup dev test
 	@echo "All tasks complete"

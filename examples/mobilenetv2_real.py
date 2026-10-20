@@ -77,15 +77,15 @@ def load_mobilenetv2_weights(layer_indices, weights_dir="mobilenetv2_weights"):
         try:
             weight = load_weight(f"conv_{idx}_weight.npy", weights_path)
             bias = load_weight(f"conv_{idx}_bias.npy", weights_path)
-            weights[f'conv_{idx}_weight'] = weight
-            weights[f'conv_{idx}_bias'] = bias
+            weights[f"conv_{idx}_weight"] = weight
+            weights[f"conv_{idx}_bias"] = bias
         except Exception as e:
             print(f"   Warning: Could not load conv_{idx}: {e}")
 
     # Load final fully connected layer
     try:
-        weights['fc_weight'] = load_weight("gemm_104_weight.npy", weights_path)
-        weights['fc_bias'] = load_weight("gemm_104_bias.npy", weights_path)
+        weights["fc_weight"] = load_weight("gemm_104_weight.npy", weights_path)
+        weights["fc_bias"] = load_weight("gemm_104_bias.npy", weights_path)
         print(f"   ✓ Loaded FC layer: {weights['fc_weight'].shape}")
     except Exception as e:
         print(f"   Warning: Could not load FC layer: {e}")
@@ -104,7 +104,7 @@ def load_and_preprocess_image(image_path, target_size=(224, 224)):
     Returns:
         Preprocessed image as numpy array (1, 3, 224, 224)
     """
-    img = Image.open(image_path).convert('RGB')
+    img = Image.open(image_path).convert("RGB")
     img = img.resize((target_size[1], target_size[0]), Image.Resampling.BILINEAR)
 
     # Convert to array and normalize
@@ -140,13 +140,15 @@ def build_mobilenetv2_simple(builder, weights):
     x = builder.input("input", [1, 3, 224, 224], "float32")
 
     # First convolution: 3 -> 32 channels (pretrained)
-    if 'conv_0_weight' in weights:
-        conv0_w = weights['conv_0_weight']
-        conv0_b = weights['conv_0_bias']
+    if "conv_0_weight" in weights:
+        conv0_w = weights["conv_0_weight"]
+        conv0_b = weights["conv_0_bias"]
         print(f"   Using pretrained conv_0: {conv0_w.shape}")
 
         conv_w = builder.constant(conv0_w, list(conv0_w.shape), "float32")
-        conv_b = builder.constant(conv0_b.reshape(1, -1, 1, 1), [1, 32, 1, 1], "float32")
+        conv_b = builder.constant(
+            conv0_b.reshape(1, -1, 1, 1), [1, 32, 1, 1], "float32"
+        )
 
         x = builder.conv2d(x, conv_w, [2, 2], None, [1, 1, 1, 1])
         x = builder.add(x, conv_b)
@@ -159,7 +161,8 @@ def build_mobilenetv2_simple(builder, weights):
     # Conv block 1: 32 -> 64
     conv1_w = builder.constant(
         np.random.randn(64, 32, 3, 3).astype(np.float32) * 0.01,
-        [64, 32, 3, 3], "float32"
+        [64, 32, 3, 3],
+        "float32",
     )
     x = builder.conv2d(x, conv1_w, [2, 2], None, [1, 1, 1, 1])
     x = builder.clamp(x, min_value=0.0, max_value=6.0)
@@ -167,7 +170,8 @@ def build_mobilenetv2_simple(builder, weights):
     # Conv block 2: 64 -> 128
     conv2_w = builder.constant(
         np.random.randn(128, 64, 3, 3).astype(np.float32) * 0.01,
-        [128, 64, 3, 3], "float32"
+        [128, 64, 3, 3],
+        "float32",
     )
     x = builder.conv2d(x, conv2_w, [2, 2], None, [1, 1, 1, 1])
     x = builder.clamp(x, min_value=0.0, max_value=6.0)
@@ -175,7 +179,8 @@ def build_mobilenetv2_simple(builder, weights):
     # Final conv: 128 -> 1280 (MobileNetV2 feature dimension)
     conv3_w = builder.constant(
         np.random.randn(1280, 128, 1, 1).astype(np.float32) * 0.01,
-        [1280, 128, 1, 1], "float32"
+        [1280, 128, 1, 1],
+        "float32",
     )
     x = builder.conv2d(x, conv3_w, None, None, None)
     x = builder.clamp(x, min_value=0.0, max_value=6.0)
@@ -185,9 +190,9 @@ def build_mobilenetv2_simple(builder, weights):
     x = builder.reshape(x, [1, 1280])
 
     # Final classifier (pretrained)
-    if 'fc_weight' in weights:
-        fc_w = weights['fc_weight']
-        fc_b = weights['fc_bias']
+    if "fc_weight" in weights:
+        fc_w = weights["fc_weight"]
+        fc_b = weights["fc_bias"]
         print(f"   Using pretrained classifier: {fc_w.shape}")
 
         fc_weight = builder.constant(fc_w, list(fc_w.shape), "float32")
@@ -197,7 +202,7 @@ def build_mobilenetv2_simple(builder, weights):
         x = builder.add(x, fc_bias)
 
     # Softmax
-    output = builder.softmax(x, axis=len(x.shape) - 1)
+    output = builder.softmax(x, axis=1)
 
     return output
 
@@ -261,7 +266,11 @@ def main():
     # Create context
     print("3. Creating WebNN context...")
     ml = webnn.ML()
-    context = ml.create_context(power_preference=power, accelerated=accelerated)
+    context = ml.create_context(
+        power_preference=power,
+        accelerated=accelerated,
+        backend="coreml" if args.backend == "coreml" else "onnx",
+    )
     print(f"   ✓ Context created (accelerated={context.accelerated})")
     print()
 
@@ -270,6 +279,10 @@ def main():
     start_time = time.time()
     builder = context.create_graph_builder()
     output = build_mobilenetv2_simple(builder, weights)
+    source = context.create_tensor([1, 3, 224, 224], "float32", writable=True)
+    target = context.create_tensor(
+        builder.operand_shape(output), builder.operand_data_type(output), readable=True
+    )
     graph = builder.build({"output": output})
     build_time = (time.time() - start_time) * 1000
     print(f"   ✓ Graph built ({build_time:.2f}ms)")
@@ -278,7 +291,9 @@ def main():
     # Run inference
     print("5. Running inference...")
     start_time = time.time()
-    results = context.compute(graph, {"input": input_data})
+    context.write_tensor(source, input_data)
+    context.dispatch(graph, {"input": source}, {"output": target})
+    results = {"output": context.read_tensor(target)}
     inf_time = (time.time() - start_time) * 1000
     print(f"   ✓ Inference complete ({inf_time:.2f}ms)")
     print()
