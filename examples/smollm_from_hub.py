@@ -25,6 +25,7 @@ from urllib.request import urlretrieve
 import numpy as np
 
 import webnn
+from model_files import model_directory, max_shape
 
 try:
     from tokenizers import Tokenizer
@@ -180,47 +181,8 @@ def _download_file(url: str, destination: Path, force: bool) -> Path:
 
 
 def resolve_model_files(model_id: str, force: bool) -> dict[str, str]:
-    """Download model files via Hub, with fallback for model.manifest.json naming."""
-    hub = webnn.Hub()
-    try:
-        files = hub.download_model(model_id, force=force)
-    except RuntimeError:
-        cache_dir = Path(hub.cache_dir) / model_id.replace("/", "--")
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        base_url = f"https://huggingface.co/{model_id}/resolve/main"
-
-        graph = _download_file(
-            f"{base_url}/model.webnn?download=true",
-            cache_dir / "model.webnn",
-            force=force,
-        )
-        weights = _download_file(
-            f"{base_url}/model.weights?download=true",
-            cache_dir / "model.weights",
-            force=force,
-        )
-        manifest = cache_dir / "manifest.json"
-        try:
-            _download_file(
-                f"{base_url}/manifest.json?download=true",
-                manifest,
-                force=force,
-            )
-        except HTTPError:
-            _download_file(
-                f"{base_url}/model.manifest.json?download=true",
-                cache_dir / "model.manifest.json",
-                force=force,
-            )
-            manifest = cache_dir / "model.manifest.json"
-
-        files = {
-            "graph": str(graph),
-            "weights": str(weights),
-            "manifest": str(manifest),
-        }
-
-    return files
+    directory = model_directory(model_id, force=force)
+    return {"graph": str(directory / "model.webnn")}
 
 
 def resolve_tokenizer(model_id: str, cache_dir: Path, force: bool) -> Path:
@@ -242,17 +204,16 @@ def create_context(backend: str) -> webnn.MLContext:
     ml = webnn.ML()
     if backend == "cpu":
         return ml.create_context(
-            power_preference="default", accelerated=False, device_type="cpu"
+            power_preference="default", accelerated=False, backend="onnx"
         )
     if backend == "gpu":
         return ml.create_context(
-            power_preference="high-performance", accelerated=True, device_type="gpu"
+            power_preference="high-performance", accelerated=True, backend="onnx"
         )
     if backend == "trtx":
         return ml.create_context(
             power_preference="high-performance",
             accelerated=True,
-            device_type="gpu",
             backend="trtx",
         )
     if backend == "coreml":
@@ -273,31 +234,6 @@ def discover_layers(input_names: list[str]) -> list[int]:
     return sorted(set(layers))
 
 
-_DIM_TOKEN_RE = re.compile(r"(?:Static\(\d+\)|Dynamic\([^)]+\))")
-
-
-def _max_dim_from_token(token: str) -> int:
-    token = token.strip()
-    if token.startswith("Static("):
-        return int(token[7:-1])
-    match = re.search(r"max_size:\s*(\d+)", token)
-    if match:
-        return int(match.group(1))
-    return 0
-
-
-def _parse_operand_shape(debug_line: str) -> list[int]:
-    start = debug_line.find("shape=[")
-    if start < 0:
-        raise RuntimeError(f"Could not parse operand shape from: {debug_line}")
-    start += len("shape=[")
-    end = debug_line.find("]", start)
-    if end < 0:
-        raise RuntimeError(f"Could not parse operand shape from: {debug_line}")
-    inner = debug_line[start:end]
-    return [_max_dim_from_token(token) for token in _DIM_TOKEN_RE.findall(inner)]
-
-
 @dataclass
 class SmolLMLayout:
     num_layers: int
@@ -309,45 +245,21 @@ class SmolLMLayout:
 
 
 def detect_layout(graph: webnn.MLGraph, output_names: list[str]) -> SmolLMLayout:
-    num_heads = head_dim = max_cache_len = None
-    for idx in range(graph.operand_count):
-        line = graph.debug_operand(idx)
-        if "past_key_values_0_key" not in line:
-            continue
-        shape = _parse_operand_shape(line)
-        if len(shape) != 4:
-            raise RuntimeError(f"Unexpected past_key shape: {shape}")
-        num_heads, max_cache_len, head_dim = shape[1], shape[2], shape[3]
-        break
-    if num_heads is None or max_cache_len is None or head_dim is None:
-        raise RuntimeError("Failed to detect KV layout from graph operands")
-
-    logits_name = None
-    vocab_size = None
-    for name in output_names:
-        if "logits" in name:
-            logits_name = name
-            break
-    if logits_name is None:
-        raise RuntimeError("Failed to detect logits output name")
-    for idx in range(graph.operand_count):
-        line = graph.debug_operand(idx)
-        if logits_name not in line:
-            continue
-        shape = _parse_operand_shape(line)
-        vocab_size = shape[-1]
-        break
-    if vocab_size is None:
-        raise RuntimeError(f"Failed to detect vocab size for {logits_name}")
-
-    layers = discover_layers(graph.get_input_names())
+    # RustNN exposes named descriptors directly; no debug-string parsing.
+    inputs, outputs = graph.input_descriptors, graph.output_descriptors
+    key_shape = max_shape(inputs["past_key_values_0_key"])
+    if len(key_shape) != 4:
+        raise RuntimeError(f"Unexpected past-key shape: {key_shape}")
+    logits_name = next(name for name in output_names if "logits" in name)
+    present_shape = max_shape(outputs["present_0_key"])
+    layers = discover_layers(list(inputs))
     return SmolLMLayout(
         num_layers=len(layers),
-        num_heads=num_heads,
-        max_cache_len=max_cache_len,
-        head_dim=head_dim,
+        num_heads=key_shape[1],
+        max_cache_len=present_shape[2],
+        head_dim=key_shape[3],
         logits_name=logits_name,
-        vocab_size=vocab_size,
+        vocab_size=max_shape(outputs[logits_name])[-1],
     )
 
 
@@ -384,10 +296,12 @@ def init_step_tensors(context: webnn.MLContext, layout: SmolLMLayout) -> StepTen
     max_seq = layout.max_cache_len
     max_past = max(0, max_seq - 1)
 
-    input_ids = context.create_host_tensor([1, 1], "int64")
-    position_ids = context.create_host_tensor([1, 1], "int64")
+    input_ids = context.create_tensor([1, 1], "int64", readable=True, writable=True)
+    position_ids = context.create_tensor([1, 1], "int64", readable=True, writable=True)
 
-    attention_mask = context.create_host_tensor([1, 1], "int64")
+    attention_mask = context.create_tensor(
+        [1, 1], "int64", readable=True, writable=True
+    )
     context.set_tensor_capacity(attention_mask, [1, max_seq])
 
     past_k: list[webnn.MLTensor] = []
@@ -395,24 +309,34 @@ def init_step_tensors(context: webnn.MLContext, layout: SmolLMLayout) -> StepTen
     present_k: list[webnn.MLTensor] = []
     present_v: list[webnn.MLTensor] = []
     for _ in range(layout.num_layers):
-        pk = context.create_host_tensor([1, h, 0, d], "float32")
+        pk = context.create_tensor(
+            [1, h, 0, d], "float32", readable=True, writable=True
+        )
         context.set_tensor_capacity(pk, [1, h, max_past, d])
         past_k.append(pk)
 
-        pv = context.create_host_tensor([1, h, 0, d], "float32")
+        pv = context.create_tensor(
+            [1, h, 0, d], "float32", readable=True, writable=True
+        )
         context.set_tensor_capacity(pv, [1, h, max_past, d])
         past_v.append(pv)
 
-        prk = context.create_host_tensor([1, h, 1, d], "float32")
+        prk = context.create_tensor(
+            [1, h, 1, d], "float32", readable=True, writable=True
+        )
         context.set_tensor_capacity(prk, [1, h, max_seq, d])
         present_k.append(prk)
 
-        prv = context.create_host_tensor([1, h, 1, d], "float32")
+        prv = context.create_tensor(
+            [1, h, 1, d], "float32", readable=True, writable=True
+        )
         context.set_tensor_capacity(prv, [1, h, max_seq, d])
         present_v.append(prv)
 
     logits_shape = [1, 1, layout.vocab_size]
-    logits = context.create_host_tensor(logits_shape, "float32")
+    logits = context.create_tensor(
+        logits_shape, "float32", readable=True, writable=True
+    )
 
     return StepTensors(
         input_ids=input_ids,
@@ -471,6 +395,10 @@ def run_generation_step(
     token_id: int,
 ) -> np.ndarray:
     past_len = state.current_pos
+    if past_len >= layout.max_cache_len:
+        raise ValueError(
+            "KV-cache capacity exhausted; use a graph with a larger capacity"
+        )
     seq_len = past_len + 1
     h = layout.num_heads
     d = layout.head_dim
@@ -484,9 +412,7 @@ def run_generation_step(
 
     context.write_tensor(tensors.input_ids, np.array([[token_id]], dtype=np.int64))
     context.write_tensor(tensors.position_ids, np.array([[past_len]], dtype=np.int64))
-    context.write_tensor(
-        tensors.attention_mask, np.ones((1, seq_len), dtype=np.int64)
-    )
+    context.write_tensor(tensors.attention_mask, np.ones((1, seq_len), dtype=np.int64))
 
     for layer in range(layout.num_layers):
         k_data = _compact_kv(state, layout, layer, "key", past_len)
@@ -611,27 +537,13 @@ def main() -> None:
     )
     print()
 
-    print("Loading graph...")
-    graph = webnn.MLGraph.load(
-        model_files["graph"],
-        manifest_path=model_files["manifest"],
-        weights_path=model_files["weights"],
-    )
-    print(f"   [OK] Operands:   {graph.operand_count}")
-    print(f"   [OK] Operations: {graph.operation_count}")
-    input_names = graph.get_input_names()
-    output_names = graph.get_output_names()
-    print(f"   [OK] Inputs:     {len(input_names)}")
-    print(f"   [OK] Outputs:    {len(output_names)}")
-    print()
-
-    print("Creating context...")
     context = create_context(args.backend)
-    print(f"   [OK] Context created (accelerated={context.accelerated})")
-    backend_info = context.backend_info()
-    print(f"   [OK] Backend requested: {backend_info['backend_requested']}")
-    print(f"   [OK] Compiled features: {backend_info['compiled_features']}")
-    print()
+    print(f"[OK] Context created (accelerated={context.accelerated})")
+    print("Loading and compiling graph through RustNN...")
+    graph = context.load_graph(model_files["graph"])
+    input_names = list(graph.input_descriptors)
+    output_names = list(graph.output_descriptors)
+    print(f"[OK] Inputs: {len(input_names)}, outputs: {len(output_names)}")
 
     print("Loading tokenizer...")
     tokenizer = Tokenizer.from_file(str(tokenizer_path))

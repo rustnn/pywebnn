@@ -11,4 +11,4 @@ pub use context::{PyML, PyMLContext};
 pub use graph::PyMLGraph;
 pub use graph_builder::PyMLGraphBuilder;
 pub use operand::PyMLOperand;
-pub use tensor::{PyMLDeviceTensor, PyMLTensor};
+pub use tensor::PyMLTensor;

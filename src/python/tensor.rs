@@ -1,50 +1,23 @@
-//! MLTensor implementation following WebNN MLTensor Explainer
-
-#![allow(unsafe_op_in_unsafe_fn)]
-#![allow(clippy::useless_conversion)]
-
-use pyo3::prelude::*;
-use rustnn::mlcontext::MLTensorDescriptor;
-use std::sync::{Arc, Mutex};
-
+//! Context-owned native tensor handles.
 use super::context::PyMLContext;
-/// Host-side view of a rustnn `MLTensor` owned by a context.
+use pyo3::prelude::*;
+
 pub(crate) struct RustnnTensor {
     pub tensor: rustnn::mlcontext::MLTensor,
-    pub desc: MLTensorDescriptor,
 }
 
-/// MLTensor - opaque typed tensor backed by rustnn runtime storage.
 #[pyclass(name = "MLTensor")]
 pub struct PyMLTensor {
-    /// Retains the owning Python context for the tensor's full lifetime.
-    pub(crate) _context: Py<PyMLContext>,
     pub(crate) inner: RustnnTensor,
-    exportable_to_gpu: bool,
-    destroyed: Arc<Mutex<bool>>,
+    pub(crate) _context: Py<PyMLContext>,
 }
 
 impl PyMLTensor {
-    pub(crate) fn from_rustnn(
-        context: Py<PyMLContext>,
-        inner: RustnnTensor,
-        exportable_to_gpu: bool,
-    ) -> Self {
+    pub(crate) fn from_rustnn(context: Py<PyMLContext>, inner: RustnnTensor) -> Self {
         Self {
-            _context: context,
             inner,
-            exportable_to_gpu,
-            destroyed: Arc::new(Mutex::new(false)),
+            _context: context,
         }
-    }
-
-    pub(crate) fn check_destroyed(&self) -> PyResult<()> {
-        if *self.destroyed.lock().unwrap() {
-            return Err(pyo3::exceptions::PyRuntimeError::new_err(
-                "Tensor has been destroyed",
-            ));
-        }
-        Ok(())
     }
 }
 
@@ -52,68 +25,24 @@ impl PyMLTensor {
 impl PyMLTensor {
     #[getter]
     fn data_type(&self) -> String {
-        self.inner.desc.data_type().as_str().to_string()
+        self.inner.tensor.data_type().as_str().to_string()
     }
-
     #[getter]
-    fn shape(&self) -> Vec<u32> {
-        self.inner
-            .tensor
-            .shape()
-            .iter()
-            .map(|&d| d as u32)
-            .collect()
+    fn shape(&self) -> Vec<u64> {
+        self.inner.tensor.shape().to_vec()
     }
-
     #[getter]
-    fn size(&self) -> usize {
-        self.inner.tensor.shape().iter().product::<u64>() as usize
+    fn readable(&self) -> bool {
+        self.inner.tensor.readable()
     }
-
     #[getter]
-    pub(crate) fn readable(&self) -> bool {
-        self.inner.desc.readable()
+    fn writable(&self) -> bool {
+        self.inner.tensor.writable()
     }
-
-    #[getter]
-    pub(crate) fn writable(&self) -> bool {
-        self.inner.desc.writable()
-    }
-
-    #[getter]
-    fn exportable_to_gpu(&self) -> bool {
-        self.exportable_to_gpu
-    }
-
+    /// RustNN has not implemented tensor destruction yet.
     fn destroy(&self) -> PyResult<()> {
-        let mut destroyed = self.destroyed.lock().unwrap();
-        if *destroyed {
-            return Err(pyo3::exceptions::PyRuntimeError::new_err(
-                "Tensor already destroyed",
-            ));
-        }
-        *destroyed = true;
-        Ok(())
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "MLTensor(shape={:?}, dtype={}, readable={}, writable={})",
-            self.shape(),
-            self.data_type(),
-            self.readable(),
-            self.writable()
-        )
-    }
-}
-
-/// Device-resident tensor — not supported on the rustnn MLContext execution path.
-#[pyclass(name = "MLDeviceTensor")]
-pub struct PyMLDeviceTensor;
-
-#[pymethods]
-impl PyMLDeviceTensor {
-    fn __repr__(&self) -> String {
-        "MLDeviceTensor(not supported)".to_string()
+        Err(pyo3::exceptions::PyNotImplementedError::new_err(
+            "RustNN does not implement tensor.destroy yet",
+        ))
     }
 }

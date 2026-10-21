@@ -73,7 +73,9 @@ SUPPORTED_DTYPES = {
 
 def _wpt_backends_for_config(config) -> list[str]:
     """Resolve which backend(s) to run; default is cpu only."""
-    choice = (config.getoption("--wpt-backend") or os.environ.get("WPT_BACKEND") or "cpu").lower()
+    choice = (
+        config.getoption("--wpt-backend") or os.environ.get("WPT_BACKEND") or "cpu"
+    ).lower()
     if choice == "all":
         backends: list[str] = []
         if EXECUTION_BACKEND_AVAILABLE:
@@ -93,15 +95,9 @@ def _backend_available(backend: str) -> bool:
 
 
 def _create_wpt_context(ml, backend_name: str):
-    device_type_map = {
-        "cpu": "cpu",
-        "coreml": "npu",
-    }
-    device_type = device_type_map.get(backend_name, "auto")
     return ml.create_context(
-        power_preference="default",
+        backend="onnx" if backend_name == "cpu" else "coreml",
         accelerated=backend_name != "cpu",
-        device_type=device_type,
     )
 
 
@@ -140,7 +136,10 @@ def should_skip_test(graph: dict[str, Any]) -> str | None:
 
 
 def pytest_generate_tests(metafunc):
-    if metafunc.definition.name == "test_wpt_conformance" and "backend_name" in metafunc.fixturenames:
+    if (
+        metafunc.definition.name == "test_wpt_conformance"
+        and "backend_name" in metafunc.fixturenames
+    ):
         backends = _wpt_backends_for_config(metafunc.config)
         metafunc.parametrize("backend_name", backends)
 
@@ -237,14 +236,19 @@ def test_wpt_conformance(context, backend_name, wpt_test_case, wpt_file, operati
         pytest.skip(str(err))
     except (ValueError, RuntimeError) as err:
         error_str = str(err)
-        if "Unsupported data type" in error_str or "Unsupported feature data type" in error_str:
+        if (
+            "Unsupported data type" in error_str
+            or "Unsupported feature data type" in error_str
+        ):
             pytest.skip(f"Unsupported data type: {err}")
         raise
 
     tolerance = wpt_test_case.get("tolerance")
     if tolerance is None:
         try:
-            tolerance = resolve_wpt_tolerance(Path(wpt_file), graph, wpt_dir=default_wpt_dir())
+            tolerance = resolve_wpt_tolerance(
+                Path(wpt_file), graph, wpt_dir=default_wpt_dir()
+            )
         except RuntimeError:
             tolerance = None
     if tolerance is None:

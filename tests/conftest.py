@@ -34,7 +34,9 @@ def pytest_configure(config):
         "markers",
         "requires_coreml_backend: Test requires CoreML (NPU) backend on macOS",
     )
-    config.addinivalue_line("markers", "slow: Tests with large inputs that take longer to run")
+    config.addinivalue_line(
+        "markers", "slow: Tests with large inputs that take longer to run"
+    )
 
 
 def pytest_addoption(parser):
@@ -59,12 +61,16 @@ def ml():
 
 @pytest.fixture(
     params=[
-        pytest.param("cpu", id="cpu")
-        if EXECUTION_BACKEND_AVAILABLE
-        else pytest.param(None, id="no_cpu_backend", marks=pytest.mark.skip),
-        pytest.param("coreml", id="coreml")
-        if COREML_BACKEND_AVAILABLE
-        else pytest.param(None, id="no_coreml_backend", marks=pytest.mark.skip),
+        (
+            pytest.param("cpu", id="cpu")
+            if EXECUTION_BACKEND_AVAILABLE
+            else pytest.param(None, id="no_cpu_backend", marks=pytest.mark.skip)
+        ),
+        (
+            pytest.param("coreml", id="coreml")
+            if COREML_BACKEND_AVAILABLE
+            else pytest.param(None, id="no_coreml_backend", marks=pytest.mark.skip)
+        ),
     ]
 )
 def backend_name(request):
@@ -81,20 +87,12 @@ def context(backend_name, ml):
     if backend_name is None:
         pytest.skip("Backend not available")
 
-    device_type_map = {
-        "cpu": "cpu",
-        "coreml": "npu",
-    }
-
-    device_type = device_type_map.get(backend_name, "auto")
     return ml.create_context(
-        power_preference="default",
+        backend="onnx" if backend_name == "cpu" else "coreml",
         accelerated=backend_name != "cpu",
-        device_type=device_type,
     )
 
 
 @pytest.fixture
 def builder(context):
-    """Create graph builder."""
     return context.create_graph_builder()

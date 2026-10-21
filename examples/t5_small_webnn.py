@@ -6,13 +6,11 @@ Loads two WebNN graphs (encoder and decoder) from a local directory and runs a
 greedy decode loop to generate text. The expected directory layout is:
 
     encoder_model.webnn
-    encoder_model.weights
-    encoder_model.manifest.json
+    encoder_model.safetensors (or manifest-backed external weights)
     decoder_model.webnn
-    decoder_model.weights
-    decoder_model.manifest.json
+    decoder_model.safetensors (or manifest-backed external weights)
 
-By default, the script points to /Users/tarekziade/Dev/t5-small-webnn. Override
+By default, the script points to models/t5-small-webnn. Override
 with the T5_WEBNN_DIR environment variable or --model-dir flag.
 """
 
@@ -28,6 +26,7 @@ import numpy as np
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
 import webnn
+from model_files import max_shape
 
 MAX_SEQ_LEN = 128
 DECODER_SEQ_LEN = 1
@@ -36,22 +35,12 @@ NUM_HEADS = 8
 HEAD_DIM = 64
 
 
-DEFAULT_MODEL_DIR = Path(
-    os.environ.get("T5_WEBNN_DIR", "/Users/tarekziade/Dev/t5-small-webnn")
-)
+DEFAULT_MODEL_DIR = Path(os.environ.get("T5_WEBNN_DIR", "models/t5-small-webnn"))
 
 
-def _load_graph(graph_path: Path, weights_path: Path, manifest_path: Path) -> webnn.MLGraph:
-    """Load a WebNN graph from disk."""
-    for path in (graph_path, weights_path, manifest_path):
-        if not path.exists():
-            raise FileNotFoundError(f"Missing required file: {path}")
-
-    return webnn.MLGraph.load(
-        str(graph_path),
-        manifest_path=str(manifest_path),
-        weights_path=str(weights_path),
-    )
+def _load_graph(context: webnn.MLContext, graph_path: Path) -> webnn.MLGraph:
+    """Delegate graph parsing, weights, and compilation to RustNN."""
+    return context.load_graph(str(graph_path))
 
 
 def _create_context(device: str) -> webnn.MLContext:
@@ -82,13 +71,19 @@ def run_encoder(
         input_ids = input_ids.astype(np.int64, copy=False)
     if attention_mask.dtype != np.int64:
         attention_mask = attention_mask.astype(np.int64, copy=False)
-    result = context.compute(
-        graph,
-        {
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-        },
-    )
+    sources = {
+        name: context.create_tensor(max_shape(spec), spec["data_type"], writable=True)
+        for name, spec in graph.input_descriptors.items()
+    }
+    targets = {
+        name: context.create_tensor(max_shape(spec), spec["data_type"], readable=True)
+        for name, spec in graph.output_descriptors.items()
+    }
+    data = {"input_ids": input_ids, "attention_mask": attention_mask}
+    for name, tensor in sources.items():
+        context.write_tensor(tensor, data[name])
+    context.dispatch(graph, sources, targets)
+    result = {name: context.read_tensor(tensor) for name, tensor in targets.items()}
     return _select_output(result, "last_hidden_state")
 
 
@@ -99,6 +94,8 @@ def run_decoder(
     decoder_input_ids: np.ndarray,
     encoder_hidden_states: np.ndarray,
     encoder_attention_mask: np.ndarray,
+    input_tensors: dict[str, webnn.MLTensor],
+    output_tensors: dict[str, webnn.MLTensor],
     past_inputs: Dict[str, np.ndarray] | None = None,
 ) -> Tuple[np.ndarray, Dict[str, np.ndarray]]:
     """Execute the decoder and return logits and present key/values."""
@@ -117,12 +114,35 @@ def run_decoder(
             if name in graph_inputs:
                 inputs[name] = value
 
-    result = context.compute(graph, inputs)
+    dimensions = {}
+    input_specs, output_specs = graph.input_descriptors, graph.output_descriptors
+    for name, tensor in input_tensors.items():
+        value = inputs[name]
+        spec = input_specs[name]
+        for dimension, size in zip(spec["shape"], value.shape):
+            if isinstance(dimension, dict):
+                dimensions[dimension["name"]] = size
+        if list(value.shape) != tensor.shape:
+            context.resize_tensor(tensor, list(value.shape))
+        context.write_tensor(tensor, value)
+    for name, tensor in output_tensors.items():
+        shape = [
+            (
+                dimensions.get(dim["name"], dim["maxSize"])
+                if isinstance(dim, dict)
+                else dim
+            )
+            for dim in output_specs[name]["shape"]
+        ]
+        if shape != tensor.shape:
+            context.resize_tensor(tensor, shape)
+    context.dispatch(graph, input_tensors, output_tensors)
+    result = {
+        name: context.read_tensor(tensor) for name, tensor in output_tensors.items()
+    }
     logits = _select_output(result, "logits")
     presents = {
-        name: tensor
-        for name, tensor in result.items()
-        if name.startswith("present_")
+        name: tensor for name, tensor in result.items() if name.startswith("present_")
     }
     return logits, presents
 
@@ -164,6 +184,15 @@ def greedy_decode(
                 (1, NUM_HEADS, MAX_SEQ_LEN, HEAD_DIM), dtype=np.float32
             )
 
+    # Allocate maximum storage once, then resize bindings within native capacity.
+    input_tensors = {
+        name: context.create_tensor(max_shape(spec), spec["data_type"], writable=True)
+        for name, spec in decoder_graph.input_descriptors.items()
+    }
+    output_tensors = {
+        name: context.create_tensor(max_shape(spec), spec["data_type"], readable=True)
+        for name, spec in decoder_graph.output_descriptors.items()
+    }
     generated = [start_id]
     for _ in range(max_new_tokens):
         decoder_input = np.full((1, DECODER_SEQ_LEN), pad_id, dtype=np.int64)
@@ -175,6 +204,8 @@ def greedy_decode(
             decoder_input_ids=decoder_input,
             encoder_hidden_states=encoder_hidden,
             encoder_attention_mask=attention_mask,
+            input_tensors=input_tensors,
+            output_tensors=output_tensors,
             past_inputs=past_inputs,
         )
         # Use the last position for next-token selection.
@@ -281,31 +312,29 @@ def main() -> int:
     else:
         ref_text = None
 
+    context = _create_context(args.device)
+    # RustNN resolves each graph's external weights beside its graph file.
     # Load WebNN graphs.
     encoder_graph = _load_graph(
+        context,
         args.model_dir / "encoder_model.webnn",
-        args.model_dir / "encoder_model.weights",
-        args.model_dir / "encoder_model.manifest.json",
     )
     # Prefer cache-enabled decoder export if present.
     decoder_webnn = args.model_dir / "decoder_model.webnn"
-    decoder_weights = args.model_dir / "decoder_model.weights"
-    decoder_manifest = args.model_dir / "decoder_model.manifest.json"
     if args.use_cache:
         candidate_webnn = args.model_dir / "decoder_past_model.webnn"
         if candidate_webnn.exists():
             decoder_webnn = candidate_webnn
-            decoder_weights = args.model_dir / "decoder_past_model.weights"
-            decoder_manifest = args.model_dir / "decoder_past_model.manifest.json"
         else:
-            print("[WARN] Cache-enabled decoder_past_model.* not found; using decoder_model.*")
+            print(
+                "[WARN] Cache-enabled decoder_past_model.* not found; using decoder_model.*"
+            )
 
-    decoder_graph = _load_graph(decoder_webnn, decoder_weights, decoder_manifest)
-    decoder_inputs = decoder_graph.get_input_names()
+    decoder_graph = _load_graph(context, decoder_webnn)
+    decoder_inputs = list(decoder_graph.input_descriptors)
 
-    context = _create_context(args.device)
     print(f"[INFO] WebNN context created (accelerated={context.accelerated})")
-    print(f"[INFO] Encoder inputs: {encoder_graph.get_input_names()}")
+    print(f"[INFO] Encoder inputs: {list(encoder_graph.input_descriptors)}")
     print(f"[INFO] Decoder inputs: {decoder_inputs}")
 
     output_text = greedy_decode(

@@ -4,7 +4,6 @@ Simple Hugging Face Hub client for WebNN models.
 Downloads WebNN model files (graph, weights, manifest) from Hugging Face Hub.
 """
 
-import os
 from pathlib import Path
 from urllib.request import urlretrieve
 from urllib.error import HTTPError
@@ -84,23 +83,9 @@ class Hub:
                 size_mb = filepath.stat().st_size / 1024 / 1024
                 print(f"   [OK] Downloaded {filepath.name} ({size_mb:.1f} MB)")
             except HTTPError as e:
-                raise RuntimeError(
-                    f"Failed to download {key} from {url}: {e}"
-                ) from e
+                raise RuntimeError(f"Failed to download {key} from {url}: {e}") from e
 
-        # Validate graph file (text DSL format)
-        try:
-            with open(files["graph"]) as f:
-                content = f.read()
-                if not content.strip():
-                    raise ValueError("Graph file is empty")
-                # Basic validation: WebNN text format should contain "input" declarations
-                if "input" not in content:
-                    raise ValueError("Invalid WebNN text format: no input declarations found")
-        except ValueError as e:
-            raise RuntimeError(
-                f"Invalid graph file: {e}"
-            ) from e
+        # RustNN validates graph contents when context.load_graph() loads the file.
 
         return {
             "graph": str(files["graph"]),
@@ -137,6 +122,7 @@ class Hub:
         if model_id is None:
             # Clear entire cache
             import shutil
+
             if self.cache_dir.exists():
                 shutil.rmtree(self.cache_dir)
                 print(f"Cleared cache: {self.cache_dir}")
@@ -145,5 +131,6 @@ class Hub:
             model_cache = self.cache_dir / model_id.replace("/", "--")
             if model_cache.exists():
                 import shutil
+
                 shutil.rmtree(model_cache)
                 print(f"Cleared cache for: {model_id}")

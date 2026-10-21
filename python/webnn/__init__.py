@@ -20,13 +20,9 @@ Example usage:
     >>> graph = builder.build({"output": output})
 """
 
-import asyncio
 import ctypes
 import os
 import sys
-from typing import Dict, Optional
-import numpy as np
-import numpy.typing as npt
 
 # Configure the native runtime library path when needed (implementation detail).
 # Users may set WEBNN_RUNTIME_LIBRARY before importing webnn.
@@ -35,6 +31,7 @@ if _RUNTIME_LIBRARY_ENV in os.environ:
     os.environ.setdefault("ORT_DYLIB_PATH", os.environ[_RUNTIME_LIBRARY_ENV])
 
 if "ORT_DYLIB_PATH" not in os.environ:
+
     def _is_core_runtime_library(path: str) -> bool:
         name = os.path.basename(path).lower()
         if any(token in name for token in ("providers", "pybind", "extensions")):
@@ -54,7 +51,9 @@ if "ORT_DYLIB_PATH" not in os.environ:
 
     def _pick_runtime_library(candidates):
         core_candidates = [p for p in candidates if _is_core_runtime_library(p)]
-        core_candidates.sort(key=lambda p: (len(os.path.basename(p)), os.path.basename(p)))
+        core_candidates.sort(
+            key=lambda p: (len(os.path.basename(p)), os.path.basename(p))
+        )
         for candidate in core_candidates:
             if _exports_runtime_api(candidate):
                 return candidate
@@ -105,143 +104,13 @@ from ._rustnn import (
 )
 from .hub import Hub
 
-
-class AsyncMLContext:
-    """Async wrapper for MLContext providing WebNN-compliant async execution.
-
-    This class wraps the synchronous MLContext and provides asynchronous methods
-    for non-blocking execution, following the W3C WebNN specification.
-
-    Example:
-        >>> ml = webnn.ML()
-        >>> context = ml.create_context(accelerated=False)
-        >>> async_context = webnn.AsyncMLContext(context)
-        >>>
-        >>> # Async execution
-        >>> await async_context.dispatch(graph, inputs)
-        >>> result = await async_context.read_tensor_async(output_tensor)
-    """
-
-    def __init__(self, context: MLContext):
-        """Initialize async context wrapper.
-
-        Args:
-            context: Synchronous MLContext instance to wrap
-        """
-        self._context = context
-
-    async def dispatch(
-        self, graph: MLGraph, inputs: Dict[str, MLTensor], outputs: Dict[str, MLTensor]
-    ) -> None:
-        """Execute graph computation asynchronously (WebNN MLTensor Explainer).
-
-        Following the W3C WebNN MLTensor Explainer:
-        https://github.com/webmachinelearning/webnn/blob/main/mltensor-explainer.md
-
-        This method dispatches the graph for execution and returns immediately.
-        Results should be read using read_tensor_async() on output tensors.
-
-        Args:
-            graph: The compiled MLGraph to execute
-            inputs: Dictionary mapping input names to MLTensor objects
-            outputs: Dictionary mapping output names to MLTensor objects
-
-        Returns:
-            None (execution happens asynchronously)
-
-        Example:
-            >>> input_tensor = context.create_tensor([2, 3], "float32")
-            >>> output_tensor = context.create_tensor([2, 3], "float32")
-            >>> await async_context.dispatch(graph, {"x": input_tensor}, {"out": output_tensor})
-        """
-        # PyO3 marks MLContext as thread-affine.  Keep its objects on the event
-        # loop thread rather than moving them into an executor thread.
-        await asyncio.sleep(0)
-        self._context.dispatch(graph, inputs, outputs)
-
-    async def read_tensor_async(self, tensor: MLTensor) -> np.ndarray:
-        """Read tensor data asynchronously.
-
-        Args:
-            tensor: The MLTensor to read from
-
-        Returns:
-            numpy.ndarray: The tensor data
-
-        Example:
-            >>> result = await async_context.read_tensor_async(output_tensor)
-        """
-        await asyncio.sleep(0)
-        return self._context.read_tensor(tensor)
-
-    async def write_tensor_async(self, tensor: MLTensor, data: np.ndarray) -> None:
-        """Write tensor data asynchronously.
-
-        Args:
-            tensor: The MLTensor to write to
-            data: Numpy array data to write
-
-        Example:
-            >>> await async_context.write_tensor_async(input_tensor, data)
-        """
-        await asyncio.sleep(0)
-        self._context.write_tensor(tensor, data)
-
-    # Synchronous methods pass through to underlying context
-    def create_graph_builder(self) -> MLGraphBuilder:
-        """Create a graph builder (synchronous)."""
-        return self._context.create_graph_builder()
-
-    def create_tensor(
-        self,
-        shape,
-        data_type: str,
-        readable: bool = True,
-        writable: bool = True,
-        exportable_to_gpu: bool = False,
-    ) -> MLTensor:
-        """Create a tensor (synchronous)."""
-        return self._context.create_tensor(
-            shape, data_type, readable, writable, exportable_to_gpu
-        )
-
-    def compute(
-        self,
-        graph: MLGraph,
-        inputs: Dict[str, npt.ArrayLike],
-        outputs: Optional[Dict[str, npt.ArrayLike]] = None,
-    ):
-        """Compute (synchronous) - prefer dispatch() for async execution."""
-        return self._context.compute(graph, inputs, outputs)
-
-    def read_tensor(self, tensor: MLTensor) -> np.ndarray:
-        """Read tensor (synchronous) - prefer read_tensor_async() for async."""
-        return self._context.read_tensor(tensor)
-
-    def write_tensor(self, tensor: MLTensor, data: np.ndarray) -> None:
-        """Write tensor (synchronous) - prefer write_tensor_async() for async."""
-        return self._context.write_tensor(tensor, data)
-
-    @property
-    def accelerated(self) -> bool:
-        """Check if GPU/NPU acceleration is available."""
-        return self._context.accelerated
-
-    @property
-    def power_preference(self) -> str:
-        """Get power preference."""
-        return self._context.power_preference
-
-
 __all__ = [
     "ML",
     "MLContext",
-    "AsyncMLContext",
     "MLGraphBuilder",
     "MLOperand",
     "MLGraph",
     "MLTensor",
     "Hub",
 ]
-
-__version__ = "0.5.11"
+__version__ = "0.5.13"

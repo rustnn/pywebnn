@@ -37,7 +37,9 @@ class SimpleTransformerLM:
         np.random.seed(42)
 
         # Token embeddings
-        self.token_embed = np.random.randn(vocab_size, d_model).astype(np.float32) * 0.02
+        self.token_embed = (
+            np.random.randn(vocab_size, d_model).astype(np.float32) * 0.02
+        )
 
         # Positional embeddings
         self.pos_embed = self._create_positional_embeddings(max_seq_len, d_model)
@@ -75,12 +77,24 @@ class SimpleTransformerLM:
     def load_weights(self, weights_file):
         """Load pre-trained weights."""
         print(f"Loading weights from {weights_file}...")
-        with open(weights_file, 'r') as f:
+        with open(weights_file, "r") as f:
             weights = json.load(f)
 
         # Load all weights from JSON
-        for key in ['token_embed', 'W_q', 'W_k', 'W_v', 'W_ff1', 'b_ff1',
-                    'W_ff2', 'b_ff2', 'W_out', 'b_out', 'ln_gamma', 'ln_beta']:
+        for key in [
+            "token_embed",
+            "W_q",
+            "W_k",
+            "W_v",
+            "W_ff1",
+            "b_ff1",
+            "W_ff2",
+            "b_ff2",
+            "W_out",
+            "b_out",
+            "ln_gamma",
+            "ln_beta",
+        ]:
             if key in weights:
                 setattr(self, key, np.array(weights[key], dtype=np.float32))
 
@@ -90,26 +104,26 @@ class SimpleTransformerLM:
         """Save model weights."""
         print(f"Saving weights to {weights_file}...")
         weights = {
-            'token_embed': self.token_embed.tolist(),
-            'W_q': self.W_q.tolist(),
-            'W_k': self.W_k.tolist(),
-            'W_v': self.W_v.tolist(),
-            'W_ff1': self.W_ff1.tolist(),
-            'b_ff1': self.b_ff1.tolist(),
-            'W_ff2': self.W_ff2.tolist(),
-            'b_ff2': self.b_ff2.tolist(),
-            'W_out': self.W_out.tolist(),
-            'b_out': self.b_out.tolist(),
-            'ln_gamma': self.ln_gamma.tolist(),
-            'ln_beta': self.ln_beta.tolist()
+            "token_embed": self.token_embed.tolist(),
+            "W_q": self.W_q.tolist(),
+            "W_k": self.W_k.tolist(),
+            "W_v": self.W_v.tolist(),
+            "W_ff1": self.W_ff1.tolist(),
+            "b_ff1": self.b_ff1.tolist(),
+            "W_ff2": self.W_ff2.tolist(),
+            "b_ff2": self.b_ff2.tolist(),
+            "W_out": self.W_out.tolist(),
+            "b_out": self.b_out.tolist(),
+            "ln_gamma": self.ln_gamma.tolist(),
+            "ln_beta": self.ln_beta.tolist(),
         }
 
-        with open(weights_file, 'w') as f:
+        with open(weights_file, "w") as f:
             json.dump(weights, f)
 
         print("✓ Weights saved")
 
-    def build_graph(self, builder, x_input):
+    def build_graph(self, builder, x_input, valid_length=None):
         """
         Build the transformer forward pass using WebNN operations.
         x_input: (seq_len, d_model) - embedded input sequence
@@ -121,12 +135,18 @@ class SimpleTransformerLM:
         W_v = builder.constant(self.W_v, list(self.W_v.shape), "float32")
 
         W_ff1 = builder.constant(self.W_ff1, list(self.W_ff1.shape), "float32")
-        b_ff1 = builder.constant(self.b_ff1.reshape(1, -1), [1, self.d_model * 2], "float32")
+        b_ff1 = builder.constant(
+            self.b_ff1.reshape(1, -1), [1, self.d_model * 2], "float32"
+        )
         W_ff2 = builder.constant(self.W_ff2, list(self.W_ff2.shape), "float32")
-        b_ff2 = builder.constant(self.b_ff2.reshape(1, -1), [1, self.d_model], "float32")
+        b_ff2 = builder.constant(
+            self.b_ff2.reshape(1, -1), [1, self.d_model], "float32"
+        )
 
         W_out = builder.constant(self.W_out, list(self.W_out.shape), "float32")
-        b_out = builder.constant(self.b_out.reshape(1, -1), [1, self.vocab_size], "float32")
+        b_out = builder.constant(
+            self.b_out.reshape(1, -1), [1, self.vocab_size], "float32"
+        )
 
         ln_gamma = builder.constant(self.ln_gamma, list(self.ln_gamma.shape), "float32")
         ln_beta = builder.constant(self.ln_beta, list(self.ln_beta.shape), "float32")
@@ -143,7 +163,13 @@ class SimpleTransformerLM:
         # In production, you'd implement proper causal attention
 
         # Mean pooling approximation of attention
-        attn_output = builder.reduce_mean(V, axes=[0], keep_dimensions=False)  # (d_model,)
+        if valid_length is None:
+            attn_output = builder.reduce_mean(V, axes=[0], keep_dimensions=False)
+        else:
+            # Zero padding contributes nothing; divide by the actual token count.
+            attn_output = builder.div(
+                builder.reduce_sum(V, axes=[0], keep_dimensions=False), valid_length
+            )
         attn_output = builder.reshape(attn_output, [1, self.d_model])
 
         # Layer norm (using built-in operation)
@@ -167,7 +193,7 @@ class SimpleTransformerLM:
         logits = builder.add(logits, b_out)
 
         # Apply softmax to get probabilities
-        probs = builder.softmax(logits, axis=len(logits.shape) - 1)
+        probs = builder.softmax(logits, axis=1)
 
         return probs
 
@@ -189,26 +215,36 @@ class SimpleTransformerLM:
         print(f"\nGenerating {max_new_tokens} tokens autoregressively...")
         print("=" * 70)
 
+        # Compile once and allocate persistent tensors before the decode loop.
+        builder = context.create_graph_builder()
+        x_input = builder.input("x", [self.max_seq_len, self.d_model], "float32")
+        valid_length = builder.input("length", [1], "float32")
+        probs_op = self.build_graph(builder, x_input, valid_length)
+        source = context.create_tensor(
+            [self.max_seq_len, self.d_model], "float32", writable=True
+        )
+        length = context.create_tensor([1], "float32", writable=True)
+        target = context.create_tensor([1, self.vocab_size], "float32", readable=True)
+        graph = builder.build({"probs": probs_op})
+        inputs, outputs = {"x": source, "length": length}, {"probs": target}
+
         for step in range(max_new_tokens):
             # Get recent context (last max_seq_len tokens)
-            context_tokens = generated[-self.max_seq_len:]
+            context_tokens = generated[-self.max_seq_len :]
             seq_len = len(context_tokens)
 
             # Embed tokens (token + positional embeddings)
-            x_embedded = np.zeros((seq_len, self.d_model), dtype=np.float32)
+            x_embedded = np.zeros((self.max_seq_len, self.d_model), dtype=np.float32)
             for i, token_id in enumerate(context_tokens):
                 if token_id < self.vocab_size:
-                    x_embedded[i, :] = self.token_embed[token_id, :] + self.pos_embed[i, :]
+                    x_embedded[i, :] = (
+                        self.token_embed[token_id, :] + self.pos_embed[i, :]
+                    )
 
-            # Build WebNN graph
-            builder = context.create_graph_builder()
-            x_input = builder.input("x", [seq_len, self.d_model], "float32")
-            probs_op = self.build_graph(builder, x_input)
-            graph = builder.build({"probs": probs_op})
-
-            # Run inference
-            results = context.compute(graph, {"x": x_embedded})
-            probs = results["probs"][0]  # (vocab_size,)
+            context.write_tensor(source, x_embedded)
+            context.write_tensor(length, np.array([seq_len], dtype=np.float32))
+            context.dispatch(graph, inputs, outputs)
+            probs = context.read_tensor(target)[0]
 
             # Apply temperature and sample
             if temperature > 0:
@@ -222,7 +258,9 @@ class SimpleTransformerLM:
 
             # Progress indicator
             if (step + 1) % 10 == 0 or step == 0:
-                print(f"  Token {step + 1}/{max_new_tokens}: {next_token} (prob: {probs[next_token]:.4f})")
+                print(
+                    f"  Token {step + 1}/{max_new_tokens}: {next_token} (prob: {probs[next_token]:.4f})"
+                )
 
         print("=" * 70)
         return generated
@@ -234,7 +272,9 @@ def main():
     )
     parser.add_argument("--prompt", default="Hello world", help="Input text prompt")
     parser.add_argument("--tokens", type=int, default=30, help="Tokens to generate")
-    parser.add_argument("--temperature", type=float, default=0.8, help="Sampling temperature")
+    parser.add_argument(
+        "--temperature", type=float, default=0.8, help="Sampling temperature"
+    )
     parser.add_argument("--weights", help="Pre-trained weights file (JSON)")
     parser.add_argument("--save-weights", help="Save weights to file")
     parser.add_argument("--backend", choices=["cpu", "gpu", "coreml"], default="cpu")
@@ -258,7 +298,11 @@ def main():
     # Create WebNN context
     print("Creating WebNN context...")
     ml = webnn.ML()
-    context = ml.create_context(power_preference=power, accelerated=accelerated)
+    context = ml.create_context(
+        power_preference=power,
+        accelerated=accelerated,
+        backend="coreml" if args.backend == "coreml" else "onnx",
+    )
     print(f"✓ Context created (accelerated={context.accelerated})")
     print()
 
@@ -279,24 +323,23 @@ def main():
         print()
 
     # Convert prompt to ASCII tokens (0-127 only)
-    prompt_bytes = args.prompt.encode('ascii', errors='ignore')
+    prompt_bytes = args.prompt.encode("ascii", errors="ignore")
     prompt_tokens = [b for b in prompt_bytes if b < 128]
 
     print(f"Prompt: '{args.prompt}'")
-    print(f"Prompt tokens ({len(prompt_tokens)}): {prompt_tokens[:10]}{'...' if len(prompt_tokens) > 10 else ''}")
+    print(
+        f"Prompt tokens ({len(prompt_tokens)}): {prompt_tokens[:10]}{'...' if len(prompt_tokens) > 10 else ''}"
+    )
     print()
 
     # Generate tokens
     all_tokens = model.generate(
-        context,
-        prompt_tokens,
-        max_new_tokens=args.tokens,
-        temperature=args.temperature
+        context, prompt_tokens, max_new_tokens=args.tokens, temperature=args.temperature
     )
 
     # Decode to text
     try:
-        generated_text = bytes(all_tokens).decode('utf-8', errors='replace')
+        generated_text = bytes(all_tokens).decode("utf-8", errors="replace")
     except:
         generated_text = str(all_tokens)
 

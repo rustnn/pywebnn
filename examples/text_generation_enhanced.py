@@ -32,6 +32,7 @@ try:
     from tokenizers.models import BPE
     from tokenizers.trainers import BpeTrainer
     from tokenizers.pre_tokenizers import Whitespace
+
     HAS_TOKENIZERS = True
 except ImportError:
     HAS_TOKENIZERS = False
@@ -59,8 +60,12 @@ class KVCache:
             new_keys: (seq_len, d_model)
             new_values: (seq_len, d_model)
         """
-        self.keys = np.vstack([self.keys, new_keys]) if self.current_len > 0 else new_keys
-        self.values = np.vstack([self.values, new_values]) if self.current_len > 0 else new_values
+        self.keys = (
+            np.vstack([self.keys, new_keys]) if self.current_len > 0 else new_keys
+        )
+        self.values = (
+            np.vstack([self.values, new_values]) if self.current_len > 0 else new_values
+        )
         self.current_len = len(self.keys)
 
         # Trim if exceeds max length
@@ -90,7 +95,9 @@ class EnhancedTransformerLM:
 
         # Initialize weights (same as before)
         np.random.seed(42)
-        self.token_embed = np.random.randn(vocab_size, d_model).astype(np.float32) * 0.02
+        self.token_embed = (
+            np.random.randn(vocab_size, d_model).astype(np.float32) * 0.02
+        )
         self.pos_embed = self._create_positional_embeddings(max_seq_len, d_model)
         self.W_q = np.random.randn(d_model, d_model).astype(np.float32) * 0.02
         self.W_k = np.random.randn(d_model, d_model).astype(np.float32) * 0.02
@@ -121,7 +128,9 @@ class EnhancedTransformerLM:
             tokenizer_name: Name like 'gpt2', 'bert-base-uncased', etc.
         """
         if not HAS_TOKENIZERS:
-            raise ImportError("tokenizers library not installed. Run: pip install tokenizers")
+            raise ImportError(
+                "tokenizers library not installed. Run: pip install tokenizers"
+            )
 
         print(f"Loading tokenizer: {tokenizer_name}")
         # For demo, we'll use a simple byte-level tokenizer
@@ -135,7 +144,9 @@ class EnhancedTransformerLM:
             return self.tokenizer.encode(text).ids
         else:
             # ASCII-only fallback (0-127)
-            return [b for b in text.encode('ascii', errors='ignore') if b < self.vocab_size]
+            return [
+                b for b in text.encode("ascii", errors="ignore") if b < self.vocab_size
+            ]
 
     def decode(self, tokens):
         """Decode tokens to text."""
@@ -144,18 +155,32 @@ class EnhancedTransformerLM:
         else:
             # Byte-level fallback
             try:
-                return bytes([t for t in tokens if t < 256]).decode('utf-8', errors='replace')
+                return bytes([t for t in tokens if t < 256]).decode(
+                    "utf-8", errors="replace"
+                )
             except:
                 return str(tokens)
 
     def load_weights(self, weights_file):
         """Load weights from JSON."""
         print(f"Loading weights from {weights_file}...")
-        with open(weights_file, 'r') as f:
+        with open(weights_file, "r") as f:
             weights = json.load(f)
 
-        for key in ['token_embed', 'W_q', 'W_k', 'W_v', 'W_ff1', 'b_ff1',
-                    'W_ff2', 'b_ff2', 'W_out', 'b_out', 'ln_gamma', 'ln_beta']:
+        for key in [
+            "token_embed",
+            "W_q",
+            "W_k",
+            "W_v",
+            "W_ff1",
+            "b_ff1",
+            "W_ff2",
+            "b_ff2",
+            "W_out",
+            "b_out",
+            "ln_gamma",
+            "ln_beta",
+        ]:
             if key in weights:
                 setattr(self, key, np.array(weights[key], dtype=np.float32))
 
@@ -178,11 +203,17 @@ class EnhancedTransformerLM:
         W_k = builder.constant(self.W_k, list(self.W_k.shape), "float32")
         W_v = builder.constant(self.W_v, list(self.W_v.shape), "float32")
         W_ff1 = builder.constant(self.W_ff1, list(self.W_ff1.shape), "float32")
-        b_ff1 = builder.constant(self.b_ff1.reshape(1, -1), [1, self.d_model * 2], "float32")
+        b_ff1 = builder.constant(
+            self.b_ff1.reshape(1, -1), [1, self.d_model * 2], "float32"
+        )
         W_ff2 = builder.constant(self.W_ff2, list(self.W_ff2.shape), "float32")
-        b_ff2 = builder.constant(self.b_ff2.reshape(1, -1), [1, self.d_model], "float32")
+        b_ff2 = builder.constant(
+            self.b_ff2.reshape(1, -1), [1, self.d_model], "float32"
+        )
         W_out = builder.constant(self.W_out, list(self.W_out.shape), "float32")
-        b_out = builder.constant(self.b_out.reshape(1, -1), [1, self.vocab_size], "float32")
+        b_out = builder.constant(
+            self.b_out.reshape(1, -1), [1, self.vocab_size], "float32"
+        )
         ln_gamma = builder.constant(self.ln_gamma, list(self.ln_gamma.shape), "float32")
         ln_beta = builder.constant(self.ln_beta, list(self.ln_beta.shape), "float32")
 
@@ -213,12 +244,14 @@ class EnhancedTransformerLM:
         # Output projection
         logits = builder.gemm(out, W_out)
         logits = builder.add(logits, b_out)
-        probs = builder.softmax(logits, axis=len(logits.shape) - 1)
+        probs = builder.softmax(logits, axis=1)
 
         # Note: new_k and new_v are returned separately for caching
         return probs  # In full implementation, return (new_k, new_v, probs)
 
-    def generate_with_kv_cache(self, context, prompt_tokens, max_new_tokens=50, temperature=0.8):
+    def generate_with_kv_cache(
+        self, context, prompt_tokens, max_new_tokens=50, temperature=0.8
+    ):
         """
         Generate using KV cache for efficiency.
 
@@ -237,6 +270,15 @@ class EnhancedTransformerLM:
         print(f"\nGenerating {max_new_tokens} tokens with KV cache...")
         print("=" * 70)
 
+        # The simplified graph uses one token; compile and allocate once.
+        builder = context.create_graph_builder()
+        x_input = builder.input("x", [1, self.d_model], "float32")
+        probs_op = self.build_graph_with_kv(builder, x_input, *kv_cache.get())
+        graph = builder.build({"probs": probs_op})
+        source = context.create_tensor([1, self.d_model], "float32", writable=True)
+        target = context.create_tensor([1, self.vocab_size], "float32", readable=True)
+        inputs, outputs = {"x": source}, {"probs": target}
+
         for step in range(max_new_tokens):
             # Get last token
             current_token = generated[-1]
@@ -250,21 +292,9 @@ class EnhancedTransformerLM:
             else:
                 x_embedded = np.zeros((1, self.d_model), dtype=np.float32)
 
-            # Get cached K, V
-            cached_k, cached_v = kv_cache.get()
-
-            # Build graph (simplified without proper KV in WebNN)
-            builder = context.create_graph_builder()
-            x_input = builder.input("x", [1, self.d_model], "float32")
-
-            # For demo, compute without full KV cache integration in WebNN
-            # Full implementation would pass cached_k, cached_v as inputs
-            probs_op = self.build_graph_with_kv(builder, x_input, cached_k, cached_v)
-            graph = builder.build({"probs": probs_op})
-
-            # Run inference
-            results = context.compute(graph, {"x": x_embedded})
-            probs = results["probs"][0]
+            context.write_tensor(source, x_embedded)
+            context.dispatch(graph, inputs, outputs)
+            probs = context.read_tensor(target)[0]
 
             # Update cache (simplified - would store actual K, V from graph)
             # For demo, just track sequence length
@@ -284,7 +314,9 @@ class EnhancedTransformerLM:
 
             # Progress
             if (step + 1) % 10 == 0 or step == 0:
-                print(f"  Token {step + 1}/{max_new_tokens}: {next_token} (cache size: {kv_cache.current_len})")
+                print(
+                    f"  Token {step + 1}/{max_new_tokens}: {next_token} (cache size: {kv_cache.current_len})"
+                )
 
         print("=" * 70)
         return generated
@@ -320,7 +352,11 @@ def main():
 
     # Create context
     ml = webnn.ML()
-    context = ml.create_context(power_preference=power, accelerated=accelerated)
+    context = ml.create_context(
+        power_preference=power,
+        accelerated=accelerated,
+        backend="coreml" if args.backend == "coreml" else "onnx",
+    )
     print(f"✓ Context created (accelerated={context.accelerated})")
     print()
 
@@ -344,7 +380,9 @@ def main():
     # Encode prompt
     prompt_tokens = model.encode(args.prompt)
     print(f"Prompt: '{args.prompt}'")
-    print(f"Tokens ({len(prompt_tokens)}): {prompt_tokens[:10]}{'...' if len(prompt_tokens) > 10 else ''}")
+    print(
+        f"Tokens ({len(prompt_tokens)}): {prompt_tokens[:10]}{'...' if len(prompt_tokens) > 10 else ''}"
+    )
     print()
 
     # Generate
@@ -355,6 +393,7 @@ def main():
     else:
         # Use original generation without KV cache
         from text_generation_gpt import SimpleTransformerLM
+
         simple_model = SimpleTransformerLM(vocab_size=256, d_model=64, max_seq_len=32)
         if args.weights:
             simple_model.load_weights(args.weights)
