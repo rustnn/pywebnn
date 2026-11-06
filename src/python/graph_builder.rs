@@ -26,6 +26,7 @@ use rustnn::operator_options::{
     MLTriangularOptions, MLUnsqueezeOptions,
 };
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 type RuntimeBuilder = MLGraphBuilder<'static, 'static>;
@@ -158,12 +159,22 @@ fn clamp_limit_to_json(
 pub struct PyMLGraphBuilder {
     // Drop the backend builder before releasing its owning Python context.
     inner: Option<RuntimeBuilder>,
-    context: Py<super::context::PyMLContext>,
+    context: Option<Py<super::context::PyMLContext>>,
     builder_id: u64,
 }
 
 #[pymethods]
 impl PyMLGraphBuilder {
+    /// Record a graph without creating or loading a runtime backend.
+    #[staticmethod]
+    fn new_uncompiled() -> Self {
+        Self {
+            inner: Some(MLGraphBuilder::new_uncompiled()),
+            context: None,
+            builder_id: next_builder_id(),
+        }
+    }
+
     #[new]
     fn new() -> PyResult<Self> {
         Err(pyo3::exceptions::PyRuntimeError::new_err(
@@ -2329,7 +2340,7 @@ impl PyMLGraphBuilder {
 
     /// Save through RustNN as .webnn text plus sibling .safetensors weights.
     /// Saving borrows the native builder; call before build().
-    fn save(&mut self, outputs: &Bound<'_, PyDict>, path: &str) -> PyResult<()> {
+    fn save(&mut self, outputs: &Bound<'_, PyDict>, path: PathBuf) -> PyResult<()> {
         let named = self.named_outputs(outputs)?;
         let outputs = named
             .iter()
@@ -2340,13 +2351,33 @@ impl PyMLGraphBuilder {
             .map_err(map_rustnn_error)
     }
 
+    /// Save through RustNN as .webnn text plus sibling .safetensors weights.
+    ///
+    /// Alias for .save()
+    fn rustnn_save_webnn(&mut self, outputs: &Bound<'_, PyDict>, path: PathBuf) -> PyResult<()> {
+        self.save(outputs, path)
+    }
+
+    /// Get the WebNN text representation as String without saving a .safetensors file for weights
+    /// (mostly for debugging)
+    fn rustnn_webnn_text_for_outputs(&mut self, outputs: &Bound<'_, PyDict>) -> PyResult<String> {
+        let named = self.named_outputs(outputs)?;
+        let outputs = named
+            .iter()
+            .map(|(name, operand)| (name.as_str(), *operand))
+            .collect();
+        self.inner_mut()?
+            .rustnn_webnn_text_for_outputs(&outputs)
+            .ok_or_else(|| PyValueError::new_err("Unable to serialize graph outputs"))
+    }
+
     /// Build the computational graph
     ///
     /// Args:
     ///     outputs: Dictionary mapping output names to MLOperand objects
     ///
     /// Returns:
-    ///     MLGraph: The compiled graph
+    ///     MLGraph: Compiled for a context builder, otherwise compiled on first execution.
     fn build(&mut self, py: Python<'_>, outputs: &Bound<'_, PyDict>) -> PyResult<PyMLGraph> {
         self.inner_mut()?;
         let named = self.named_outputs(outputs)?;
@@ -2356,12 +2387,19 @@ impl PyMLGraphBuilder {
             .collect();
         // Compilation consumes this Python builder even when finalization/backend compilation fails.
         let mut inner = self.inner.take().expect("checked above");
-        let compiled = inner.build(&outputs);
-        drop(inner);
-        Ok(PyMLGraph::new(
-            compiled.map_err(map_rustnn_error)?,
-            self.context.clone_ref(py),
-        ))
+        if let Some(context) = &self.context {
+            let compiled = inner.build(&outputs);
+            drop(inner);
+            Ok(PyMLGraph::new(
+                compiled.map_err(map_rustnn_error)?,
+                context.clone_ref(py),
+            ))
+        } else {
+            let graph = inner
+                .finish_graph_info(&outputs)
+                .map_err(map_rustnn_error)?;
+            Ok(PyMLGraph::uncompiled(graph))
+        }
     }
 
     /// Scatter elements operation
@@ -3122,12 +3160,11 @@ impl PyMLGraphBuilder {
         py: Python<'_>,
         context: Py<super::context::PyMLContext>,
     ) -> PyResult<Self> {
-        static NEXT_BUILDER: AtomicU64 = AtomicU64::new(1);
         let inner = context.bind(py).borrow().create_runtime_builder()?;
         Ok(Self {
             inner: Some(inner),
-            context,
-            builder_id: NEXT_BUILDER.fetch_add(1, Ordering::Relaxed),
+            context: Some(context),
+            builder_id: next_builder_id(),
         })
     }
 
@@ -3151,10 +3188,22 @@ impl PyMLGraphBuilder {
         Ok(operand.handle)
     }
 
-    fn wrap(&self, handle: MLOperand) -> PyResult<PyMLOperand> {
+    fn wrap(&mut self, handle: MLOperand) -> PyResult<PyMLOperand> {
+        let inner = self
+            .inner
+            .as_mut()
+            .ok_or_else(|| PyRuntimeError::new_err("MLGraphBuilder.build() was already called"))?;
         Ok(PyMLOperand {
             handle,
             builder_id: self.builder_id,
+            shape: inner
+                .rustnn_operand_shape(handle)
+                .map_err(map_rustnn_error)?,
+            data_type: inner
+                .rustnn_operand_data_type(handle)
+                .map_err(map_rustnn_error)?
+                .as_str()
+                .to_string(),
         })
     }
 
@@ -3180,4 +3229,9 @@ impl PyMLGraphBuilder {
         let handles = op(self.inner_mut()?).map_err(builder_error)?;
         self.wrap_many(handles)
     }
+}
+
+fn next_builder_id() -> u64 {
+    static NEXT_BUILDER: AtomicU64 = AtomicU64::new(1);
+    NEXT_BUILDER.fetch_add(1, Ordering::Relaxed)
 }

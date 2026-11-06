@@ -1,6 +1,6 @@
 # pywebnn
 
-Thin Python bindings to RustNN's runtime-bound builder and persistent tensor API.
+Python bindings to RustNN's graph builder and persistent tensor API.
 RustNN owns graph recording, validation, compilation, execution, and saving.
 Python converts arguments and NumPy buffers and retains native object owners.
 
@@ -49,7 +49,7 @@ print(context.read_tensor(target))
 Allocate tensor bindings once and reuse them across dispatches. There is no
 `compute()` method or automatic per-dispatch tensor allocation.
 
-## Save before compilation
+## Export and load
 
 ```python
 outputs = {"y": y}
@@ -61,6 +61,11 @@ Saving forwards to RustNN's `rustnn_save_webnn()` and writes `.webnn` text plus
 `.safetensors` weights. Reload with `graph = context.load_graph("model.webnn")`,
 which delegates loading and compilation to RustNN. The graph's native
 `input_descriptors` and `output_descriptors` describe the tensors to allocate.
+
+Export without initializing a runtime using `webnn.MLGraphBuilder.new_uncompiled()`.
+Its `build(outputs)` returns an in-memory graph that compiles on its first
+`dispatch()` in a context. Read-only `operand.shape` and
+`operand.data_type` expose RustNN's inferred metadata.
 
 ## Documentation
 

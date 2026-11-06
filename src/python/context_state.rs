@@ -456,11 +456,7 @@ pub(crate) fn dispatch_with_ml_tensors(
     inputs: &Bound<'_, PyDict>,
     outputs: &Bound<'_, PyDict>,
 ) -> PyResult<()> {
-    if !graph.context.bind(py).is(context.bind(py)) {
-        return Err(PyValueError::new_err(
-            "Graph belongs to a different MLContext",
-        ));
-    }
+    graph.ensure_compiled(py, state, context)?;
 
     let mut input_names = Vec::new();
     let mut input_tensors = Vec::new();
@@ -495,6 +491,10 @@ pub(crate) fn dispatch_with_ml_tensors(
 
     state
         .ml_context
-        .dispatch(&mut graph.inner, &input_refs, &output_refs)
+        .dispatch(
+            graph.inner.as_mut().expect("compiled graph"),
+            &input_refs,
+            &output_refs,
+        )
         .map_err(map_rustnn_error)
 }

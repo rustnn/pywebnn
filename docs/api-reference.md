@@ -33,23 +33,29 @@ Reshape/expand shapes and slice sizes accept integer dimensions or named dynamic
 dimensions such as `{"name": "batch", "maxSize": 8}`. RustNN determines their semantics.
 
 Use `builder.operand_shape(operand)` and `builder.operand_data_type(operand)` to query
-native metadata **before** build. Python operands are opaque handles with no cached
-shape, dtype, or name properties.
+native metadata **before** build. Read-only `operand.shape` and `operand.data_type`
+retain RustNN's inferred metadata and remain available after build.
 
-`builder.save(outputs, path)` forwards RustNN's native save method before compilation.
-`builder.build(outputs)` calls RustNN's existing build method and consumes the builder.
-Subsequent native builder queries fail as they do in RustNN.
+`MLGraphBuilder.new_uncompiled()` records without creating a runtime context.
+`builder.build(outputs)` finalizes a native graph and consumes the builder for
+further operations. A context builder compiles immediately; an uncompiled builder
+defers compilation until the graph's first execution.
 
-## Compiled graph
+`builder.save(outputs, path)` and its alias `rustnn_save_webnn(outputs, path)` write
+text plus sibling SafeTensors weights. `rustnn_webnn_text_for_outputs(outputs)`
+returns debug text with inline constants. Serialize before calling `build()`, which consumes the native builder.
 
-`MLGraph` is a native compiled handle used by `context.dispatch`. It retains its
-runtime owner for lifetime safety. Python stores no `GraphInfo` or separate graph
-representation. Its `input_descriptors` and `output_descriptors` properties forward
-RustNN's public I/O fields as dictionaries with `shape` and `data_type` entries.
+## Graph
+
+`MLGraph` holds a native `GraphInfo` until compilation and retains its runtime
+owner after compilation for lifetime safety. Its `input_descriptors` and
+`output_descriptors` properties expose native I/O fields as dictionaries with
+`shape` and `data_type` entries, including before compilation.
 Dynamic dimensions remain `{ "name": ..., "maxSize": ... }` dictionaries.
 
 `context.load_graph(path)` forwards RustNN's file loader and compiles the loaded
 graph for that context. RustNN resolves external weights relative to the graph file.
+`MLGraph.load(path)` loads without a runtime and compiles at first dispatch. Once compiled, a graph belongs to that executing context.
 Allocate tensors explicitly from the native I/O descriptors and reuse them across
 dispatches. Download Hub files with the independent `webnn.Hub` helper or
 `huggingface_hub`. `Hub` provides `download_model`, `list_cached_models`, and
