@@ -28,10 +28,11 @@ import webnn
 
 # Try to import HuggingFace tokenizers
 try:
-    from tokenizers import Tokenizer
-    from tokenizers.models import BPE
-    from tokenizers.pre_tokenizers import Whitespace
-    from tokenizers.trainers import BpeTrainer
+    # TOOD: Those are unused. Remove?
+    from tokenizers import Tokenizer  # NOQA
+    from tokenizers.models import BPE  # NOQA
+    from tokenizers.pre_tokenizers import Whitespace  # NOQA
+    from tokenizers.trainers import BpeTrainer  # NOQA
 
     HAS_TOKENIZERS = True
 except ImportError:
