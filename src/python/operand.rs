@@ -1,4 +1,4 @@
-//! Opaque native operand handles. RustNN owns operand metadata.
+//! Native operand handles with immutable snapshots of RustNN-inferred metadata.
 use pyo3::prelude::*;
 use rustnn::graph::DataType;
 
@@ -7,6 +7,21 @@ use rustnn::graph::DataType;
 pub struct PyMLOperand {
     pub(crate) handle: rustnn::mlcontext::MLOperand,
     pub(crate) builder_id: u64,
+    pub(crate) shape: Vec<u64>,
+    pub(crate) data_type: String,
+}
+
+#[pymethods]
+impl PyMLOperand {
+    #[getter]
+    fn shape(&self) -> Vec<u64> {
+        self.shape.clone()
+    }
+
+    #[getter]
+    fn data_type(&self) -> &str {
+        &self.data_type
+    }
 }
 
 /// Parse data type string to DataType enum

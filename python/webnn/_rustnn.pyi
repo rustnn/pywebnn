@@ -1,5 +1,6 @@
 """Types for the direct RustNN bindings. No Python graph representation is exposed."""
 
+from os import PathLike
 from typing import Any, TypeAlias
 
 import numpy as np
@@ -41,11 +42,18 @@ class MLContext:
         """Raises NotImplementedError while unimplemented in RustNN."""
 
 class MLOperand:
-    """Opaque native operand; query shape and dtype through its builder before build()."""
+    """Native operand with read-only metadata inferred by RustNN."""
+
+    @property
+    def shape(self) -> list[int]: ...
+    @property
+    def data_type(self) -> str: ...
 
 class MLGraphBuilder:
-    """Create builders through MLContext.create_graph_builder()."""
+    """Create builders through a context or new_uncompiled()."""
 
+    @staticmethod
+    def new_uncompiled() -> MLGraphBuilder: ...
     def input(self, name: str, shape: list[int], data_type: str) -> MLOperand: ...
     def constant(
         self,
@@ -498,7 +506,13 @@ class MLGraphBuilder:
         *,
         label: str | None = None,
     ) -> MLOperand: ...
-    def save(self, outputs: dict[str, MLOperand], path: str) -> None: ...
+    def save(
+        self, outputs: dict[str, MLOperand], path: str | PathLike[str]
+    ) -> None: ...
+    def rustnn_save_webnn(
+        self, outputs: dict[str, MLOperand], path: str | PathLike[str]
+    ) -> None: ...
+    def rustnn_webnn_text_for_outputs(self, outputs: dict[str, MLOperand]) -> str: ...
     def build(self, outputs: dict[str, MLOperand]) -> MLGraph: ...
     def scatter_elements(
         self,
@@ -685,8 +699,10 @@ class MLGraphBuilder:
     def operand_data_type(self, operand: MLOperand) -> str: ...
 
 class MLGraph:
-    """Native compiled graph passed to MLContext.dispatch()."""
+    """Native graph; uncompiled graphs compile on first dispatch."""
 
+    @staticmethod
+    def load(path: str | PathLike[str]) -> MLGraph: ...
     @property
     def input_descriptors(self) -> dict[str, dict[str, Any]]: ...
     @property
