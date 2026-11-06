@@ -717,7 +717,7 @@ impl PyMLGraphBuilder {
             layout: parse_pool_layout(layout)?.to_string(),
             ..Default::default()
         };
-        self.call(|builder| builder.global_average_pool_with_options(input, options))
+        self.call(|builder| builder.average_pool2d_with_options(input, options))
     }
 
     /// Global Max Pooling operation
@@ -742,7 +742,7 @@ impl PyMLGraphBuilder {
             layout: parse_pool_layout(layout)?.to_string(),
             ..Default::default()
         };
-        self.call(|builder| builder.global_max_pool_with_options(input, options))
+        self.call(|builder| builder.max_pool2d_with_options(input, options))
     }
 
     // Normalization operations
