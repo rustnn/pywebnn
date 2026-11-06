@@ -5,8 +5,8 @@ Downloads WebNN model files (graph, weights, manifest) from Hugging Face Hub.
 """
 
 from pathlib import Path
-from urllib.request import urlretrieve
 from urllib.error import HTTPError
+from urllib.request import urlretrieve
 
 
 class Hub:

@@ -1,9 +1,7 @@
 """Tests for the Python WebNN API"""
 
-import sys
-import pytest
 import numpy as np
-
+import pytest
 from execution import GraphExecution
 from runtime_support import requires_execution_backend
 

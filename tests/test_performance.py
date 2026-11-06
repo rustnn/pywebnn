@@ -1,7 +1,6 @@
 """Repeated dispatch reuses explicit tensor bindings."""
 
 import numpy as np
-import pytest
 from runtime_support import requires_execution_backend
 
 

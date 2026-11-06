@@ -15,9 +15,10 @@ Usage:
     python train_text_model.py --data shakespeare.txt --epochs 10 --save model.json
 """
 
-import sys
 import argparse
+import sys
 from pathlib import Path
+
 import numpy as np
 
 # Import the model from the generation script

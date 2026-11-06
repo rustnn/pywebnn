@@ -7,10 +7,9 @@ and compares the resulting file sizes to demonstrate storage savings.
 """
 
 import tempfile
-import os
-import numpy as np
 from pathlib import Path
 
+import numpy as np
 import webnn
 
 
@@ -128,9 +127,9 @@ def compare_sizes(size_multiplier=1):
     print("=" * 80)
     print("QUANTIZATION FILE SIZE COMPARISON")
     print("=" * 80)
-    print(f"\nModel Configuration:")
+    print("\nModel Configuration:")
     print(f"  Base size: {64 * size_multiplier} x {64 * size_multiplier}")
-    print(f"  Layers: 2 fully-connected layers (matmul + relu + matmul)")
+    print("  Layers: 2 fully-connected layers (matmul + relu + matmul)")
     print(f"  Total parameters: ~{2 * (64 * size_multiplier) ** 2:,}")
     print()
 
@@ -190,7 +189,7 @@ def compare_sizes(size_multiplier=1):
     float32_size = results.get("float32", {}).get("kb", 0)
 
     for name in ["float32", "float16", "int8", "int4"]:
-        if name in results and results[name]:
+        if results.get(name):
             size_kb = results[name]["kb"]
             size_mb = results[name]["mb"]
 
@@ -211,11 +210,11 @@ def compare_sizes(size_multiplier=1):
     print("\nSTORAGE SAVINGS BREAKDOWN:")
     print("-" * 80)
 
-    if "float32" in results and results["float32"]:
+    if results.get("float32"):
         baseline_bytes = results["float32"]["bytes"]
 
         for name in ["float16", "int8", "int4"]:
-            if name in results and results[name]:
+            if results.get(name):
                 size_bytes = results[name]["bytes"]
                 saved_bytes = baseline_bytes - size_bytes
                 saved_kb = saved_bytes / 1024
@@ -242,7 +241,7 @@ if __name__ == "__main__":
 
     if size_multiplier > 1:
         print(f"\n[INFO] Using size multiplier: {size_multiplier}x")
-        print(f"[INFO] This will create larger models for more realistic comparison\n")
+        print("[INFO] This will create larger models for more realistic comparison\n")
 
     results = compare_sizes(size_multiplier)
 

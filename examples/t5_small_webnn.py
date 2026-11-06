@@ -20,13 +20,11 @@ import argparse
 import os
 import sys
 from pathlib import Path
-from typing import Dict, Tuple
 
 import numpy as np
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
-
 import webnn
 from model_files import max_shape
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
 MAX_SEQ_LEN = 128
 DECODER_SEQ_LEN = 1
@@ -51,7 +49,7 @@ def _create_context(device: str) -> webnn.MLContext:
     return ml.create_context(power_preference="high-performance", accelerated=True)
 
 
-def _select_output(outputs: Dict[str, np.ndarray], desired: str) -> np.ndarray:
+def _select_output(outputs: dict[str, np.ndarray], desired: str) -> np.ndarray:
     """Return the named output, falling back to the first tensor if missing."""
     if desired in outputs:
         return outputs[desired]
@@ -96,15 +94,15 @@ def run_decoder(
     encoder_attention_mask: np.ndarray,
     input_tensors: dict[str, webnn.MLTensor],
     output_tensors: dict[str, webnn.MLTensor],
-    past_inputs: Dict[str, np.ndarray] | None = None,
-) -> Tuple[np.ndarray, Dict[str, np.ndarray]]:
+    past_inputs: dict[str, np.ndarray] | None = None,
+) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     """Execute the decoder and return logits and present key/values."""
     if decoder_input_ids.dtype != np.int64:
         decoder_input_ids = decoder_input_ids.astype(np.int64, copy=False)
     if encoder_attention_mask.dtype != np.int64:
         encoder_attention_mask = encoder_attention_mask.astype(np.int64, copy=False)
     # Initialize empty KV-cache inputs if the graph expects them.
-    inputs: Dict[str, np.ndarray] = {
+    inputs: dict[str, np.ndarray] = {
         "input_ids": decoder_input_ids,
         "encoder_hidden_states": encoder_hidden_states,
         "encoder_attention_mask": encoder_attention_mask,
@@ -168,7 +166,7 @@ def greedy_decode(
     eos_id = tokenizer.eos_token_id or pad_id
 
     # Initialize past caches (decoder + encoder).
-    past_inputs: Dict[str, np.ndarray] = {}
+    past_inputs: dict[str, np.ndarray] = {}
     if has_cache:
         for layer in range(NUM_LAYERS):
             past_inputs[f"past_key_values_{layer}_decoder_key"] = np.zeros(
@@ -214,7 +212,7 @@ def greedy_decode(
             topk = np.argsort(last_logits)[-5:][::-1]
             decoded_topk = [tokenizer.decode([int(t)]) for t in topk]
             print(
-                "[DEBUG] step={step} top5 tokens: ".format(step=len(generated))
+                f"[DEBUG] step={len(generated)} top5 tokens: "
                 + ", ".join(f"{int(t)}='{s}'" for t, s in zip(topk, decoded_topk))
             )
         next_token = int(np.argmax(last_logits))

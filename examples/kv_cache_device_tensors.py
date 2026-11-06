@@ -7,6 +7,7 @@ ping-pong tensor bindings; actual storage and transfers are controlled by RustNN
 
 import sys
 import time
+
 import numpy as np
 
 try:

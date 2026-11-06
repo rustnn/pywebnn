@@ -16,13 +16,14 @@ Architecture:
 All weights loaded from webmachinelearning/test-data repository.
 """
 
+import argparse
 import sys
 import time
-import argparse
 from pathlib import Path
+
 import numpy as np
-from PIL import Image
 import webnn
+from PIL import Image
 
 
 # Load ImageNet labels

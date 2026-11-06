@@ -19,10 +19,10 @@ Usage:
     python text_generation_enhanced.py --weights model.json --use-kv-cache --tokens 100
 """
 
-import sys
 import argparse
 import json
 from pathlib import Path
+
 import numpy as np
 import webnn
 
@@ -30,8 +30,8 @@ import webnn
 try:
     from tokenizers import Tokenizer
     from tokenizers.models import BPE
-    from tokenizers.trainers import BpeTrainer
     from tokenizers.pre_tokenizers import Whitespace
+    from tokenizers.trainers import BpeTrainer
 
     HAS_TOKENIZERS = True
 except ImportError:
