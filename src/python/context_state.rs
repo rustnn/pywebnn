@@ -104,10 +104,6 @@ pub(crate) fn build_context_options(
     }
 }
 
-pub(crate) fn data_type_to_ml_operand(dt: DataType) -> PyResult<MLOperandDataType> {
-    MLOperandDataType::try_from(dt).map_err(|e| PyValueError::new_err(e.to_string()))
-}
-
 fn tensor_element_count(tensor: &MLTensor) -> usize {
     tensor.shape().iter().product::<u64>() as usize
 }
@@ -207,8 +203,7 @@ pub(crate) fn ml_tensor_descriptor(
     readable: bool,
     writable: bool,
 ) -> PyResult<MLTensorDescriptor> {
-    let dt = parse_data_type(data_type)?;
-    let ml_dt = data_type_to_ml_operand(dt)?;
+    let ml_dt = parse_data_type(data_type)?;
     let shape_u64: Vec<u64> = shape.iter().map(|&d| d as u64).collect();
     let mut desc = MLTensorDescriptor::new(ml_dt, shape_u64);
     desc.set_readable(readable);

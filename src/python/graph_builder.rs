@@ -6,7 +6,7 @@
 #![allow(clippy::useless_conversion)]
 #![allow(clippy::too_many_arguments)]
 
-use super::context_state::{data_type_to_ml_operand, map_rustnn_error, pack_numpy_to_4bit_bytes};
+use super::context_state::{map_rustnn_error, pack_numpy_to_4bit_bytes};
 use super::graph::PyMLGraph;
 use super::operand::{numpy_dtype, parse_data_type, PyMLOperand};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -183,7 +183,7 @@ impl PyMLGraphBuilder {
     fn input(&mut self, name: String, shape: Vec<u32>, data_type: &str) -> PyResult<PyMLOperand> {
         self.inner_mut()?;
         let descriptor = MLOperandDescriptor::new(
-            data_type_to_ml_operand(parse_data_type(data_type)?)?,
+            parse_data_type(data_type)?,
             shape.into_iter().map(u64::from).collect(),
         );
         let handle = self
@@ -239,7 +239,7 @@ impl PyMLGraphBuilder {
                 "astype",
                 (numpy_dtype(
                     py,
-                    data_type_to_ml_operand(actual_dtype)?.as_str(),
+                    actual_dtype.as_str(),
                 )?,),
                 Some(&cast_options),
             )?,
@@ -252,7 +252,7 @@ impl PyMLGraphBuilder {
         };
 
         let descriptor = MLOperandDescriptor::new(
-            data_type_to_ml_operand(actual_dtype)?,
+            actual_dtype,
             actual_shape.into_iter().map(u64::from).collect(),
         );
         let handle = self
@@ -2318,7 +2318,7 @@ impl PyMLGraphBuilder {
     ) -> PyResult<PyMLOperand> {
         self.inner_mut()?;
         let input = self.handle(input)?;
-        let data_type = data_type_to_ml_operand(parse_data_type(data_type)?)?;
+        let data_type = parse_data_type(data_type)?;
         self.call(|builder| {
             builder.cast_with_options(
                 input,
