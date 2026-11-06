@@ -54,6 +54,7 @@ def test_context_creation(ml):
     # Test accelerated context with low power (NPU preferred)
     assert ml.create_context(power_preference="low-power", accelerated=True)
 
+
 def test_graph_builder_creation(context):
     """Test graph builder creation"""
     builder = context.create_graph_builder()
