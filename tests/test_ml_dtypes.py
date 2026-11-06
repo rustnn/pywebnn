@@ -8,7 +8,6 @@ import numpy as np
 import pytest
 import webnn
 
-
 DTYPES = [
     pytest.param("bfloat16", ml_dtypes.bfloat16, id="bfloat16"),
     pytest.param("float8e4m3", ml_dtypes.float8_e4m3fn, id="float8e4m3"),
@@ -63,9 +62,7 @@ def test_constant_dtype(onnx_context, name, dtype, infer):
     builder = onnx_context.create_graph_builder()
     values = np.array([[1.0, -2.5], [0.125, 3.0]], dtype=dtype if infer else np.float32)
     operand = (
-        builder.constant(values)
-        if infer
-        else builder.constant(values, data_type=name)
+        builder.constant(values) if infer else builder.constant(values, data_type=name)
     )
     assert builder.operand_shape(operand) == [2, 2]
     assert builder.operand_data_type(operand) == (
@@ -92,7 +89,10 @@ def test_unsupported_float8_format(onnx_context, dtype):
 def test_conversion_imports_ml_dtypes():
     # A fresh process has not imported ml_dtypes on behalf of the binding.
     subprocess.run(
-        [sys.executable, "-c", """
+        [
+            sys.executable,
+            "-c",
+            """
 import sys
 import webnn
 assert 'ml_dtypes' not in sys.modules
@@ -102,7 +102,8 @@ for name in ('bfloat16', 'float8e4m3'):
     context.write_tensor(tensor, [1.0, -2.5])
     result = context.read_tensor(tensor)
     assert result.astype('float32').tolist() == [1.0, -2.5]
-"""],
+""",
+        ],
         check=True,
         timeout=60,
     )
