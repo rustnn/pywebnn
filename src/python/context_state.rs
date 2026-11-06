@@ -7,7 +7,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyTuple};
 use rustnn::graph::{pack_int4, pack_uint4, unpack_int4, unpack_uint4, DataType};
 use rustnn::mlcontext::{
-    Backend, MLContext, MLContextOptions, MLPowerPreference, MLTensor, MLTensorDescriptor,
+    MLContext, MLContextOptions, MLPowerPreference, MLTensor, MLTensorDescriptor,
 };
 use rustnn::operator_enums::MLOperandDataType;
 use std::collections::BTreeMap;
@@ -95,12 +95,11 @@ pub(crate) fn build_context_options(
     let options = MLContextOptions::new(parse_power_preference(power_preference)?, accelerated);
     match backend {
         "auto" => Ok(options),
-        "onnx" => Ok(options.with_rustnn_backend_hint(Backend::Onnx)),
-        "trtx" => Ok(options.with_rustnn_backend_hint(Backend::Trtx)),
-        "coreml" => Ok(options.with_rustnn_backend_hint(Backend::Coreml)),
-        "litert" => Ok(options.with_rustnn_backend_hint(Backend::Litert)),
-        "cann" => Ok(options.with_rustnn_backend_hint(Backend::Cann)),
-        _ => Err(PyValueError::new_err("Unknown RustNN backend")),
+        backend => Ok(options.with_rustnn_backend_hint(
+            backend
+                .try_into()
+                .map_err(|_| PyValueError::new_err("Unknown RustNN backend {backend:?}"))?,
+        )),
     }
 }
 

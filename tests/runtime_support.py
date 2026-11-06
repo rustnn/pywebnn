@@ -28,7 +28,7 @@ EXECUTION_BACKEND_AVAILABLE = _can_execute("onnx", False)
 COREML_BACKEND_AVAILABLE = platform.system() == "Darwin" and _can_execute(
     "coreml", True
 )
-TESTED_BACKENDS = ("trtx", "onnx", "cann", "litert")
+TESTED_BACKENDS = ("trtx", "onnx", "cann", "litert", "burn-cpu")
 AVAILABLE_BACKEND_ACCELERATED_COMBOS = [
     b for b in itertools.product(TESTED_BACKENDS, (True, False)) if _can_execute(*b)
 ]
