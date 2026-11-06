@@ -1489,9 +1489,9 @@ def test_reshape_valid(builder):
     x = builder.input("x", [2, 3], "float32")
     y = builder.reshape(x, [6])
 
-    assert builder.operand_shape(y) == [
-        6
-    ], f"Expected [6], got {builder.operand_shape(y)}"
+    assert builder.operand_shape(y) == [6], (
+        f"Expected [6], got {builder.operand_shape(y)}"
+    )
 
 
 @xfail(reason="Reson RustNN doesn't do validation of this yet")

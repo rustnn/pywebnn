@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import webnn
+import pytest
 
 
 @pytest.mark.parametrize("quant_dtype", ["int8", "uint8", "int4", "uint4"])
