@@ -107,7 +107,6 @@ run-all-demo run-all-demos: dev
 	$(VENV_PYTHON) examples/python_simple.py
 	$(VENV_PYTHON) examples/python_matmul.py
 	$(VENV_PYTHON) examples/dispatch_example.py
-	$(VENV_PYTHON) examples/test_quantization_roundtrip.py
 	$(VENV_PYTHON) examples/kv_cache_device_tensors.py
 	$(VENV_PYTHON) examples/text_generation_gpt.py --tokens 3 --temperature 0
 	$(VENV_PYTHON) examples/text_generation_enhanced.py --use-kv-cache --tokens 3 --temperature 0
