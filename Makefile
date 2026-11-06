@@ -75,6 +75,7 @@ lint:
 		echo "Running Python linting..."; \
 		. $(VENV_ACTIVATE) && python -m black --check python/ tests/ examples/ || true; \
 		. $(VENV_ACTIVATE) && python -m mypy python/ || true; \
+		. $(VENV_ACTIVATE) && python -m ruff check || true; \
 	fi
 
 fmt:
