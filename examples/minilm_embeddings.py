@@ -105,7 +105,7 @@ def _debug_probe_backend(context):
         print(f"  output: {output}")
         if np.allclose(output, 0):
             print("  [DEBUG] Output is all zeros (likely fallback/no backend)")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"  [DEBUG] Compute failed: {exc}")
 
 

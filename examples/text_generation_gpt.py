@@ -342,7 +342,7 @@ def main():
     # Decode to text
     try:
         generated_text = bytes(all_tokens).decode("utf-8", errors="replace")
-    except:
+    except Exception:
         generated_text = str(all_tokens)
 
     print()

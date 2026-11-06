@@ -10,7 +10,16 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Tarek Ziade", email = "tarek@ziade.org" }]
-keywords = ["webnn", "neural-network", "machine-learning", "onnx", "coreml", "ai", "graph", "inference"]
+keywords = [
+    "webnn",
+    "neural-network",
+    "machine-learning",
+    "onnx",
+    "coreml",
+    "ai",
+    "graph",
+    "inference",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -25,15 +34,10 @@ classifiers = [
     "Programming Language :: Rust",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-dependencies = [
-    "numpy>=1.20.0",
-    "onnxruntime>=1.29.0",
-]
+dependencies = ["numpy>=1.20.0", "onnxruntime>=1.29.0"]
 
 [project.optional-dependencies]
-test = [
-    "pytest>=7.0",
-]
+test = ["pytest>=7.0"]
 
 [project.urls]
 Homepage = "https://github.com/rustnn/pywebnn"
@@ -46,3 +50,9 @@ module-name = "webnn._rustnn"
 python-source = "python"
 # CoreML is opt-in because it requires Apple's Objective-C runtime.
 features = ["pyo3/extension-module", "onnx-runtime", "dynamic-inputs"]
+
+[tool.ruff.lint]
+ignore = [
+    "B017",   # assert blind-exceptions
+    "BLE001", # blind-exceptions
+]

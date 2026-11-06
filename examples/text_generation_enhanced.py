@@ -159,7 +159,7 @@ class EnhancedTransformerLM:
                 return bytes([t for t in tokens if t < 256]).decode(
                     "utf-8", errors="replace"
                 )
-            except:
+            except Exception:
                 return str(tokens)
 
     def load_weights(self, weights_file):
