@@ -219,7 +219,9 @@ class EnhancedTransformerLM:
 
         # Compute Q, K, V for new token
         Q = builder.matmul(x_input, W_q)  # (1, d_model)
+        assert Q
         K = builder.matmul(x_input, W_k)  # (1, d_model)
+        assert K
         V = builder.matmul(x_input, W_v)  # (1, d_model)
 
         # Simplified attention: use mean pooling

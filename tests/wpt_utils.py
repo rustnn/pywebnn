@@ -7,7 +7,6 @@ Test data is loaded from WPT JavaScript via tests/wpt_js_loader.py (Node bridge)
 Based on: https://github.com/web-platform-tests/wpt/tree/master/webnn
 """
 
-import math
 from typing import Any
 
 import numpy as np
@@ -107,7 +106,6 @@ def numpy_array_from_test_data(test_data: dict[str, Any]) -> np.ndarray:
     np_dtype = dtype_map.get(dtype_str, np.float32)
 
     if isinstance(data, (int, float)):
-        total_elements = math.prod(shape) if shape else 1
         fill = _parse_wpt_int64_scalar(data) if dtype_str == "int64" else data
         if dtype_str == "uint64":
             fill = int(data)
