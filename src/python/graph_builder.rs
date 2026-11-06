@@ -237,10 +237,7 @@ impl PyMLGraphBuilder {
             DataType::Int4 | DataType::Uint4 => array,
             _ => array.call_method(
                 "astype",
-                (numpy_dtype(
-                    py,
-                    actual_dtype.as_str(),
-                )?,),
+                (numpy_dtype(py, actual_dtype.as_str())?,),
                 Some(&cast_options),
             )?,
         };
