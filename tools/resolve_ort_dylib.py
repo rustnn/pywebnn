@@ -66,7 +66,10 @@ def main() -> int:
             print(candidate)
             return 0
 
-    print("Could not resolve a valid ONNX Runtime dylib (OrtGetApiBase missing)", file=sys.stderr)
+    print(
+        "Could not resolve a valid ONNX Runtime dylib (OrtGetApiBase missing)",
+        file=sys.stderr,
+    )
     return 1
 
 
