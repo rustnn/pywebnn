@@ -48,11 +48,11 @@ def test_context_creation(ml):
     assert ctx.accelerated == False
 
     # Test accelerated context with high performance
-    assert(ml.create_context(power_preference="high-performance", accelerated=True))
+    assert ml.create_context(power_preference="high-performance", accelerated=True)
     # Note: accelerated may be True or False depending on platform capabilities
 
     # Test accelerated context with low power (NPU preferred)
-    assert(ml.create_context(power_preference="low-power", accelerated=True))
+    assert ml.create_context(power_preference="low-power", accelerated=True)
 
 
 def test_graph_builder_creation(context):
@@ -1489,9 +1489,9 @@ def test_reshape_valid(builder):
     x = builder.input("x", [2, 3], "float32")
     y = builder.reshape(x, [6])
 
-    assert builder.operand_shape(y) == [6], (
-        f"Expected [6], got {builder.operand_shape(y)}"
-    )
+    assert builder.operand_shape(y) == [
+        6
+    ], f"Expected [6], got {builder.operand_shape(y)}"
 
 
 @xfail(reason="Reson RustNN doesn't do validation of this yet")
