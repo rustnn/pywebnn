@@ -3,7 +3,10 @@
 import numpy as np
 import pytest
 from execution import GraphExecution
-from runtime_support import requires_execution_backend, fails_because_of_missing_invalid_rustnn_validation
+from runtime_support import (
+    fails_because_of_missing_invalid_rustnn_validation,
+    requires_execution_backend,
+)
 
 xfail = pytest.mark.xfail
 

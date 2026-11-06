@@ -4,9 +4,8 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
-import webnn
 import pytest
-
+import webnn
 from runtime_support import fails_because_of_missing_invalid_rustnn_validation
 
 

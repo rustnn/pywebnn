@@ -41,7 +41,7 @@ setup:
 	$(PYTHON) -m venv $(VENV_DIR)
 	@echo "Installing development dependencies..."
 	$(VENV_PIP) install --upgrade pip
-	$(VENV_PIP) install maturin pytest numpy onnxruntime
+	$(VENV_PIP) install maturin pytest numpy onnxruntime ml_dtypes
 	@echo "Virtual environment ready at $(VENV_DIR)"
 
 dev: setup

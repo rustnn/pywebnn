@@ -8,7 +8,7 @@
 
 use super::context_state::{data_type_to_ml_operand, map_rustnn_error, pack_numpy_to_4bit_bytes};
 use super::graph::PyMLGraph;
-use super::operand::{parse_data_type, PyMLOperand};
+use super::operand::{numpy_dtype, parse_data_type, PyMLOperand};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -237,7 +237,10 @@ impl PyMLGraphBuilder {
             DataType::Int4 | DataType::Uint4 => array,
             _ => array.call_method(
                 "astype",
-                (data_type_to_ml_operand(actual_dtype)?.as_str(),),
+                (numpy_dtype(
+                    py,
+                    data_type_to_ml_operand(actual_dtype)?.as_str(),
+                )?,),
                 Some(&cast_options),
             )?,
         };

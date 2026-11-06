@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use std::sync::Once;
 
 use super::graph::PyMLGraph;
-use super::operand::parse_data_type;
+use super::operand::{numpy_dtype, parse_data_type};
 use super::tensor::RustnnTensor;
 
 /// Runtime state owned by a Python context. Graphs own their compiled resources.
@@ -113,9 +113,7 @@ fn tensor_element_count(tensor: &MLTensor) -> usize {
 }
 
 fn packed_storage_bytes(data_type: DataType, elements: usize) -> PyResult<usize> {
-    data_type
-        .storage_byte_length(elements)
-        .ok_or_else(|| PyValueError::new_err(format!("invalid element count for {data_type:?}")))
+    Ok(data_type.rustnn_storage_byte_length(elements))
 }
 
 fn write_pod_buffer<T>(
@@ -237,7 +235,7 @@ fn coerce_contiguous_write_array<'py>(
     dtype_str: &str,
 ) -> PyResult<Bound<'py, PyAny>> {
     let array = numpy.call_method1("asarray", (data,))?;
-    let typed = array.call_method1("astype", (dtype_str,))?;
+    let typed = array.call_method1("astype", (numpy_dtype(numpy.py(), dtype_str)?,))?;
     numpy.call_method1("ascontiguousarray", (typed,))
 }
 
@@ -298,7 +296,7 @@ fn numpy_array_from_bytes<'py>(
     shape_tuple: &Bound<'py, PyTuple>,
 ) -> PyResult<Bound<'py, PyAny>> {
     let py_bytes = PyBytes::new(py, bytes);
-    let array = numpy.call_method1("frombuffer", (py_bytes, dtype))?;
+    let array = numpy.call_method1("frombuffer", (py_bytes, numpy_dtype(py, dtype)?))?;
     array.call_method1("reshape", (shape_tuple,))
 }
 
@@ -335,6 +333,12 @@ fn read_ml_tensor_to_numpy<'py>(
         }
         DataType::Float16 => {
             read_typed_ml_tensor::<u16>(py, state, tensor, numpy, "float16", &shape_tuple)
+        }
+        DataType::Bfloat16 => {
+            read_typed_ml_tensor::<u16>(py, state, tensor, numpy, "bfloat16", &shape_tuple)
+        }
+        DataType::Float8e4m3 => {
+            read_typed_ml_tensor::<u8>(py, state, tensor, numpy, "float8e4m3", &shape_tuple)
         }
         DataType::Int32 => {
             read_typed_ml_tensor::<i32>(py, state, tensor, numpy, "int32", &shape_tuple)
