@@ -7,7 +7,7 @@ name = "pywebnn"
 version = "0.5.13"
 description = "Python bindings for W3C WebNN specification"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11" # onnxruntime>=1.29.0 has now
 license = { text = "Apache-2.0" }
 authors = [{ name = "Tarek Ziade", email = "tarek@ziade.org" }]
 keywords = [
