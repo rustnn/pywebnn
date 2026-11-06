@@ -7,8 +7,11 @@ import numpy as np
 import webnn
 import pytest
 
+from runtime_support import fails_because_of_missing_invalid_rustnn_validation
+
 
 @pytest.mark.parametrize("quant_dtype", ["int8", "uint8", "int4", "uint4"])
+@fails_because_of_missing_invalid_rustnn_validation
 def test_quantization_roundtrip(quant_dtype):
     context = webnn.ML().create_context(accelerated=False)
     builder = context.create_graph_builder()
