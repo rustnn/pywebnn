@@ -27,7 +27,7 @@ classifiers = [
 ]
 dependencies = [
     "numpy>=1.20.0",
-    "onnxruntime>=1.23.0",
+    "onnxruntime>=1.29.0",
 ]
 
 [project.optional-dependencies]

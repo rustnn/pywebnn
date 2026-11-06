@@ -4,9 +4,11 @@ import tempfile
 from pathlib import Path
 import numpy as np
 import webnn
+import pytest
 
 
-def test_quantization_roundtrip(quant_dtype="int8", quant_level_name="int8"):
+@pytest.mark.parametrize("quant_dtype", ["int8", "uint8", "int4", "uint4"])
+def test_quantization_roundtrip(quant_dtype):
     context = webnn.ML().create_context(accelerated=False)
     builder = context.create_graph_builder()
     x = builder.input("x", [4], "float32")
@@ -30,10 +32,3 @@ def test_quantization_roundtrip(quant_dtype="int8", quant_level_name="int8"):
         loaded = context.load_graph(str(path))
         context.dispatch(loaded, {"x": source}, {"y": target})
         np.testing.assert_allclose(context.read_tensor(target), values)
-    print(f"{quant_level_name}: native save/load round trip and dispatch passed")
-    return True
-
-
-if __name__ == "__main__":
-    for dtype in ["int8", "uint8", "int4", "uint4"]:
-        test_quantization_roundtrip(dtype, dtype)

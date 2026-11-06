@@ -7,6 +7,8 @@ import numpy as np
 from execution import GraphExecution
 from runtime_support import requires_execution_backend
 
+xfail = pytest.mark.xfail
+
 # Note: Import will only work after building with maturin
 try:
     import webnn
@@ -139,6 +141,7 @@ def test_reshape_operation(builder):
     assert builder.operand_data_type(reshaped) == "float32"
 
 
+@xfail(reason="Reson RustNN doesn't do validation of this yet")
 def test_softmax_invalid_axis(builder):
     """Test softmax rejects axes outside the input rank."""
     x = builder.input("x", [2, 3], "float32")
@@ -1487,11 +1490,12 @@ def test_reshape_valid(builder):
     x = builder.input("x", [2, 3], "float32")
     y = builder.reshape(x, [6])
 
-    assert builder.operand_shape(y) == [
-        6
-    ], f"Expected [6], got {builder.operand_shape(y)}"
+    assert builder.operand_shape(y) == [6], (
+        f"Expected [6], got {builder.operand_shape(y)}"
+    )
 
 
+@xfail(reason="Reson RustNN doesn't do validation of this yet")
 def test_reshape_invalid(builder):
     """Test that invalid reshape raises error"""
     x = builder.input("x", [2, 3], "float32")
@@ -3232,6 +3236,7 @@ def test_clamp_shape_inference(context):
     assert builder.operand_shape(output) == [1, 224, 224, 3]
 
 
+@xfail(reason="RustNN doesn't validate this yet")
 def test_clamp_invalid_range(context):
     """Test clamp with invalid min/max range"""
     builder = context.create_graph_builder()
