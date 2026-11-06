@@ -66,7 +66,7 @@ def _debug_environment():
     # Locate the webnn package and bundled runtime libs (if any)
     webnn_spec = importlib.util.find_spec("webnn")
     if webnn_spec and webnn_spec.submodule_search_locations:
-        webnn_path = Path(list(webnn_spec.submodule_search_locations)[0])
+        webnn_path = Path(next(iter(webnn_spec.submodule_search_locations)))
         rustnn_ext = webnn_path / "_rustnn.cpython-{}.so".format(
             sys.implementation.cache_tag.split("-", 1)[1]
         )
