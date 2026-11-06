@@ -274,14 +274,16 @@ fn write_numpy_to_ml_tensor(
 
     match dt {
         MLOperandDataType::Float32 => write_pod_buffer::<f32>(state, tensor, &flat, element_count),
-        MLOperandDataType::Float16 => {
+        MLOperandDataType::Float16 | MLOperandDataType::Bfloat16 => {
             let bits = flat.call_method1("view", ("uint16",))?;
             write_pod_buffer::<u16>(state, tensor, &bits, element_count)
         }
         MLOperandDataType::Int32 => write_pod_buffer::<i32>(state, tensor, &flat, element_count),
         MLOperandDataType::Uint32 => write_pod_buffer::<u32>(state, tensor, &flat, element_count),
         MLOperandDataType::Int8 => write_pod_buffer::<i8>(state, tensor, &flat, element_count),
-        MLOperandDataType::Uint8 => write_pod_buffer::<u8>(state, tensor, &flat, element_count),
+        MLOperandDataType::Uint8 | MLOperandDataType::Float8e4m3 => {
+            write_pod_buffer::<u8>(state, tensor, &flat, element_count)
+        }
         MLOperandDataType::Int64 => write_pod_buffer::<i64>(state, tensor, &flat, element_count),
         MLOperandDataType::Uint64 => write_pod_buffer::<u64>(state, tensor, &flat, element_count),
         MLOperandDataType::Int4 | MLOperandDataType::Uint4 => unreachable!(),
