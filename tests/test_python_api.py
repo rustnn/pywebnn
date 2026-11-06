@@ -669,12 +669,12 @@ def test_lesser_or_equal_computation(context, builder):
 @requires_execution_backend
 def test_logical_not_computation(context, builder):
     """Test element-wise logical NOT"""
-    x = builder.input("x", [2, 3], "float32")
+    x = builder.input("x", [2, 3], "uint8")
     y = builder.logical_not(x)
     graph = GraphExecution(context, builder, {"y": y})
 
-    # Use 0.0 for false and non-zero for true
-    x_data = np.array([[0.0, 1.0, 0.0], [2.0, 0.0, 3.0]], dtype=np.float32)
+    # Use 0 for false and non-zero for true
+    x_data = np.array([[0, 1, 0], [2, 0, 3]], dtype=np.uint8)
 
     results = graph.run({"x": x_data})
     assert "y" in results
@@ -687,14 +687,14 @@ def test_logical_not_computation(context, builder):
 @requires_execution_backend
 def test_logical_and_computation(context, builder):
     """Test element-wise logical AND"""
-    a = builder.input("a", [2, 3], "float32")
-    b = builder.input("b", [2, 3], "float32")
+    a = builder.input("a", [2, 3], "uint8")
+    b = builder.input("b", [2, 3], "uint8")
     y = builder.logical_and(a, b)
     graph = GraphExecution(context, builder, {"y": y})
 
-    # Use 0.0 for false and non-zero for true
-    a_data = np.array([[0.0, 1.0, 1.0], [0.0, 2.0, 3.0]], dtype=np.float32)
-    b_data = np.array([[0.0, 0.0, 1.0], [1.0, 2.0, 0.0]], dtype=np.float32)
+    # Use 0 for false and non-zero for true
+    a_data = np.array([[0, 1, 1], [0, 2, 3]], dtype=np.uint8)
+    b_data = np.array([[0, 0, 1], [1, 2, 0]], dtype=np.uint8)
 
     results = graph.run({"a": a_data, "b": b_data})
     assert "y" in results
@@ -707,14 +707,14 @@ def test_logical_and_computation(context, builder):
 @requires_execution_backend
 def test_logical_or_computation(context, builder):
     """Test element-wise logical OR"""
-    a = builder.input("a", [2, 3], "float32")
-    b = builder.input("b", [2, 3], "float32")
+    a = builder.input("a", [2, 3], "uint8")
+    b = builder.input("b", [2, 3], "uint8")
     y = builder.logical_or(a, b)
     graph = GraphExecution(context, builder, {"y": y})
 
-    # Use 0.0 for false and non-zero for true
-    a_data = np.array([[0.0, 1.0, 1.0], [0.0, 2.0, 3.0]], dtype=np.float32)
-    b_data = np.array([[0.0, 0.0, 1.0], [1.0, 2.0, 0.0]], dtype=np.float32)
+    # Use 0 for false and non-zero for true
+    a_data = np.array([[0, 1, 1], [0, 2, 3]], dtype=np.uint8)
+    b_data = np.array([[0, 0, 1], [1, 2, 0]], dtype=np.uint8)
 
     results = graph.run({"a": a_data, "b": b_data})
     assert "y" in results
@@ -727,14 +727,14 @@ def test_logical_or_computation(context, builder):
 @requires_execution_backend
 def test_logical_xor_computation(context, builder):
     """Test element-wise logical XOR"""
-    a = builder.input("a", [2, 3], "float32")
-    b = builder.input("b", [2, 3], "float32")
+    a = builder.input("a", [2, 3], "uint8")
+    b = builder.input("b", [2, 3], "uint8")
     y = builder.logical_xor(a, b)
     graph = GraphExecution(context, builder, {"y": y})
 
-    # Use 0.0 for false and non-zero for true
-    a_data = np.array([[0.0, 1.0, 1.0], [0.0, 2.0, 3.0]], dtype=np.float32)
-    b_data = np.array([[0.0, 0.0, 1.0], [1.0, 2.0, 0.0]], dtype=np.float32)
+    # Use 0 for false and non-zero for true
+    a_data = np.array([[0, 1, 1], [0, 2, 3]], dtype=np.uint8)
+    b_data = np.array([[0, 0, 1], [1, 2, 0]], dtype=np.uint8)
 
     results = graph.run({"a": a_data, "b": b_data})
     assert "y" in results
