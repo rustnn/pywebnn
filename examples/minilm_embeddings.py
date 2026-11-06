@@ -12,12 +12,13 @@ Model: Xenova/all-MiniLM-L6-v2 (sentence-transformers)
 - Outputs 384-dimensional embeddings
 """
 
-import os
-import sys
-import numpy as np
-from pathlib import Path
 import importlib.util
+import os
 import platform
+import sys
+from pathlib import Path
+
+import numpy as np
 
 # Default Hugging Face Hub model (downloaded automatically when no local path is set).
 DEFAULT_HUB_MODEL_ID = "tarekziade/all-MiniLM-L6-v2-webnn"
@@ -37,15 +38,15 @@ MODEL_ID = (
 MAX_LEN = 128
 
 try:
-    from transformers import AutoTokenizer, AutoModel
     import torch
+    from transformers import AutoModel, AutoTokenizer
 except ImportError:
     print("[ERROR] transformers or torch library not found")
     print("Install them with: pip install transformers torch")
     sys.exit(1)
 
 import webnn
-from model_files import model_directory, max_shape
+from model_files import max_shape, model_directory
 
 
 def _debug_environment():
@@ -65,7 +66,7 @@ def _debug_environment():
     # Locate the webnn package and bundled runtime libs (if any)
     webnn_spec = importlib.util.find_spec("webnn")
     if webnn_spec and webnn_spec.submodule_search_locations:
-        webnn_path = Path(list(webnn_spec.submodule_search_locations)[0])
+        webnn_path = Path(next(iter(webnn_spec.submodule_search_locations)))
         rustnn_ext = webnn_path / "_rustnn.cpython-{}.so".format(
             sys.implementation.cache_tag.split("-", 1)[1]
         )
@@ -104,7 +105,7 @@ def _debug_probe_backend(context):
         print(f"  output: {output}")
         if np.allclose(output, 0):
             print("  [DEBUG] Output is all zeros (likely fallback/no backend)")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"  [DEBUG] Compute failed: {exc}")
 
 
@@ -604,7 +605,7 @@ def main():
     except Exception as e:
         error_msg = str(e)
         if "404" in error_msg or "Entry Not Found" in error_msg:
-            print(f"[WARNING] Model not found on Hugging Face Hub")
+            print("[WARNING] Model not found on Hugging Face Hub")
             print(
                 "[INFO] The model may not be uploaded yet to: tarekziade/all-MiniLM-L6-v2-webnn"
             )

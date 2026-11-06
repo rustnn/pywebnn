@@ -19,9 +19,9 @@ Usage:
     python examples/image_classification.py path/to/image.jpg
 """
 
+import argparse
 import sys
 import time
-import argparse
 from pathlib import Path
 
 try:

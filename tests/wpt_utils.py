@@ -7,15 +7,14 @@ Test data is loaded from WPT JavaScript via tests/wpt_js_loader.py (Node bridge)
 Based on: https://github.com/web-platform-tests/wpt/tree/master/webnn
 """
 
-import math
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 
 
 def format_test_failure(
     test_name: str,
-    failures: List[Dict[str, Any]],
+    failures: list[dict[str, Any]],
     max_failures_shown: int = 5,
 ) -> str:
     """Format test failure details for human-readable output."""
@@ -82,7 +81,7 @@ def convert_bigint_values(data: Any) -> Any:
     return data
 
 
-def numpy_array_from_test_data(test_data: Dict[str, Any]) -> np.ndarray:
+def numpy_array_from_test_data(test_data: dict[str, Any]) -> np.ndarray:
     """Create a NumPy array from a WPT tensor spec (descriptor + data)."""
     data = convert_bigint_values(test_data["data"])
 
@@ -107,7 +106,6 @@ def numpy_array_from_test_data(test_data: Dict[str, Any]) -> np.ndarray:
     np_dtype = dtype_map.get(dtype_str, np.float32)
 
     if isinstance(data, (int, float)):
-        total_elements = math.prod(shape) if shape else 1
         fill = _parse_wpt_int64_scalar(data) if dtype_str == "int64" else data
         if dtype_str == "uint64":
             fill = int(data)

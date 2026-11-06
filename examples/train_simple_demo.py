@@ -17,11 +17,12 @@ Usage:
 
 import argparse
 import json
+
 import numpy as np
-from pathlib import Path
 
 # Character-level vocabulary
 CHARS = " abcdefghijklmnopqrstuvwxyz.,!?-"
+LEN_CHARS = len(CHARS)
 CHAR_TO_IDX = {c: i for i, c in enumerate(CHARS)}
 IDX_TO_CHAR = {i: c for i, c in enumerate(CHARS)}
 
@@ -33,7 +34,7 @@ class SimpleCharModel:
     No attention, no transformer complexity.
     """
 
-    def __init__(self, vocab_size=len(CHARS), hidden_size=32):
+    def __init__(self, vocab_size=LEN_CHARS, hidden_size=32):
         self.vocab_size = vocab_size
         self.hidden_size = hidden_size
 

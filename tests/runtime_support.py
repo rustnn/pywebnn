@@ -1,6 +1,7 @@
 """Runtime probes shared by native binding tests."""
 
 import platform
+
 import numpy as np
 import pytest
 

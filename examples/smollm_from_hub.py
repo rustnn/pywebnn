@@ -23,9 +23,8 @@ from urllib.error import HTTPError
 from urllib.request import urlretrieve
 
 import numpy as np
-
 import webnn
-from model_files import model_directory, max_shape
+from model_files import max_shape, model_directory
 
 try:
     from tokenizers import Tokenizer

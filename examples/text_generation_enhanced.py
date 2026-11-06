@@ -19,19 +19,20 @@ Usage:
     python text_generation_enhanced.py --weights model.json --use-kv-cache --tokens 100
 """
 
-import sys
 import argparse
 import json
 from pathlib import Path
+
 import numpy as np
 import webnn
 
 # Try to import HuggingFace tokenizers
 try:
-    from tokenizers import Tokenizer
-    from tokenizers.models import BPE
-    from tokenizers.trainers import BpeTrainer
-    from tokenizers.pre_tokenizers import Whitespace
+    # TOOD: Those are unused. Remove?
+    from tokenizers import Tokenizer  # NOQA
+    from tokenizers.models import BPE  # NOQA
+    from tokenizers.pre_tokenizers import Whitespace  # NOQA
+    from tokenizers.trainers import BpeTrainer  # NOQA
 
     HAS_TOKENIZERS = True
 except ImportError:
@@ -158,7 +159,7 @@ class EnhancedTransformerLM:
                 return bytes([t for t in tokens if t < 256]).decode(
                     "utf-8", errors="replace"
                 )
-            except:
+            except Exception:
                 return str(tokens)
 
     def load_weights(self, weights_file):
@@ -219,7 +220,9 @@ class EnhancedTransformerLM:
 
         # Compute Q, K, V for new token
         Q = builder.matmul(x_input, W_q)  # (1, d_model)
+        assert Q
         K = builder.matmul(x_input, W_k)  # (1, d_model)
+        assert K
         V = builder.matmul(x_input, W_v)  # (1, d_model)
 
         # Simplified attention: use mean pooling

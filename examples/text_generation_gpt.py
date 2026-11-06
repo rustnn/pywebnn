@@ -14,10 +14,10 @@ The model generates one token at a time (like the JavaScript LLM demo),
 using pre-trained or initialized weights.
 """
 
-import sys
 import argparse
 import json
 from pathlib import Path
+
 import numpy as np
 import webnn
 
@@ -154,7 +154,9 @@ class SimpleTransformerLM:
         # Simplified attention: use last token's representation
         # Q, K, V = x @ W_q, x @ W_k, x @ W_v
         Q = builder.matmul(x_input, W_q)  # (seq_len, d_model)
+        assert Q
         K = builder.matmul(x_input, W_k)  # (seq_len, d_model)
+        assert K
         V = builder.matmul(x_input, W_v)  # (seq_len, d_model)
 
         # Compute attention scores for last position
@@ -292,7 +294,7 @@ def main():
     print("Next-Token Generation with Attention (WebNN)")
     print("=" * 70)
     print(f"Backend: {backend_name}")
-    print(f"Model: vocab=128 (ASCII), d_model=64, max_seq=32")
+    print("Model: vocab=128 (ASCII), d_model=64, max_seq=32")
     print()
 
     # Create WebNN context
@@ -340,7 +342,7 @@ def main():
     # Decode to text
     try:
         generated_text = bytes(all_tokens).decode("utf-8", errors="replace")
-    except:
+    except Exception:
         generated_text = str(all_tokens)
 
     print()

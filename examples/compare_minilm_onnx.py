@@ -15,15 +15,15 @@ Use the outputs to decide whether the mismatch comes from:
 from __future__ import annotations
 
 import argparse
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 import numpy as np
 import onnxruntime as ort
 import torch
-from transformers import AutoModel, AutoTokenizer
 import webnn
 from model_files import max_shape
+from transformers import AutoModel, AutoTokenizer
 
 HF_MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_WEBNN_DIR = Path("models/all-MiniLM-L6-v2-webnn")

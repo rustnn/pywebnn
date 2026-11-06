@@ -19,14 +19,15 @@ Example:
     python examples/mobilenetv2_from_hub.py cat.jpg --model-id username/my-model
 """
 
+import argparse
 import sys
 import time
-import argparse
 from pathlib import Path
+
 import numpy as np
-from PIL import Image
 import webnn
-from model_files import model_directory, max_shape
+from model_files import max_shape, model_directory
+from PIL import Image
 
 
 # Load ImageNet labels
@@ -39,9 +40,9 @@ def load_imagenet_labels():
         url = (
             "https://raw.githubusercontent.com/pytorch/hub/master/imagenet_classes.txt"
         )
-        print(f"   [DOWNLOAD] ImageNet labels from GitHub...")
+        print("   [DOWNLOAD] ImageNet labels from GitHub...")
         urllib.request.urlretrieve(url, labels_file)
-        print(f"   [OK] Labels downloaded")
+        print("   [OK] Labels downloaded")
 
     with open(labels_file) as f:
         return [line.strip() for line in f]

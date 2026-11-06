@@ -13,11 +13,10 @@ Usage:
     python examples/mobilenetv2_real.py path/to/image.jpg [--backend cpu|gpu|coreml]
 """
 
+import argparse
 import sys
 import time
-import argparse
 from pathlib import Path
-import urllib.request
 
 try:
     import numpy as np

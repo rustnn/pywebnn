@@ -24,12 +24,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from runtime_support import COREML_BACKEND_AVAILABLE, EXECUTION_BACKEND_AVAILABLE
 
 try:
     from wpt_assert import assert_output_close
-    from wpt_tolerance_fallback import compute_wpt_tolerance_fallback
     from wpt_execute_graph import execute_graph_resources, normalize_op_name
     from wpt_js_loader import (
         default_wpt_dir,
@@ -40,6 +38,7 @@ try:
         resolve_wpt_tolerance,
         wpt_cache_available,
     )
+    from wpt_tolerance_fallback import compute_wpt_tolerance_fallback
 except ModuleNotFoundError as err:
     # WPT support is optional: the helper modules are intentionally kept with
     # the external WPT harness and are not part of the normal test install.
@@ -228,7 +227,7 @@ def test_wpt_conformance(context, backend_name, wpt_test_case, wpt_file, operati
     test_name = wpt_test_case.get("name", "")
     skip_reason = should_skip_test(graph)
     if skip_reason:
-        pytest.skip(skip_reason)
+        pytest.skip(f"{test_name}: {skip_reason}")
 
     try:
         results = execute_graph_resources(context, graph)

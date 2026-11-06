@@ -5,7 +5,6 @@ This module provides common fixtures for WebNN API testing.
 """
 
 import pytest
-
 from runtime_support import (
     COREML_BACKEND_AVAILABLE,
     EXECUTION_BACKEND_AVAILABLE,
@@ -15,10 +14,10 @@ from runtime_support import (
 
 # Re-export markers for tests that import from conftest.
 __all__ = [
-    "requires_execution_backend",
-    "requires_coreml_backend",
-    "EXECUTION_BACKEND_AVAILABLE",
     "COREML_BACKEND_AVAILABLE",
+    "EXECUTION_BACKEND_AVAILABLE",
+    "requires_coreml_backend",
+    "requires_execution_backend",
 ]
 
 
