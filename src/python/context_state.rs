@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use std::sync::Once;
 
 use super::graph::PyMLGraph;
-use super::operand::parse_data_type;
+use super::operand::{numpy_dtype, parse_data_type};
 use super::tensor::RustnnTensor;
 
 /// Runtime state owned by a Python context. Graphs own their compiled resources.
@@ -104,18 +104,12 @@ pub(crate) fn build_context_options(
     }
 }
 
-pub(crate) fn data_type_to_ml_operand(dt: DataType) -> PyResult<MLOperandDataType> {
-    MLOperandDataType::try_from(dt).map_err(|e| PyValueError::new_err(e.to_string()))
-}
-
 fn tensor_element_count(tensor: &MLTensor) -> usize {
     tensor.shape().iter().product::<u64>() as usize
 }
 
 fn packed_storage_bytes(data_type: DataType, elements: usize) -> PyResult<usize> {
-    data_type
-        .storage_byte_length(elements)
-        .ok_or_else(|| PyValueError::new_err(format!("invalid element count for {data_type:?}")))
+    Ok(data_type.rustnn_storage_byte_length(elements))
 }
 
 fn write_pod_buffer<T>(
@@ -209,8 +203,7 @@ pub(crate) fn ml_tensor_descriptor(
     readable: bool,
     writable: bool,
 ) -> PyResult<MLTensorDescriptor> {
-    let dt = parse_data_type(data_type)?;
-    let ml_dt = data_type_to_ml_operand(dt)?;
+    let ml_dt = parse_data_type(data_type)?;
     let shape_u64: Vec<u64> = shape.iter().map(|&d| d as u64).collect();
     let mut desc = MLTensorDescriptor::new(ml_dt, shape_u64);
     desc.set_readable(readable);
@@ -237,7 +230,7 @@ fn coerce_contiguous_write_array<'py>(
     dtype_str: &str,
 ) -> PyResult<Bound<'py, PyAny>> {
     let array = numpy.call_method1("asarray", (data,))?;
-    let typed = array.call_method1("astype", (dtype_str,))?;
+    let typed = array.call_method1("astype", (numpy_dtype(numpy.py(), dtype_str)?,))?;
     numpy.call_method1("ascontiguousarray", (typed,))
 }
 
@@ -274,14 +267,16 @@ fn write_numpy_to_ml_tensor(
 
     match dt {
         MLOperandDataType::Float32 => write_pod_buffer::<f32>(state, tensor, &flat, element_count),
-        MLOperandDataType::Float16 => {
+        MLOperandDataType::Float16 | MLOperandDataType::Bfloat16 => {
             let bits = flat.call_method1("view", ("uint16",))?;
             write_pod_buffer::<u16>(state, tensor, &bits, element_count)
         }
         MLOperandDataType::Int32 => write_pod_buffer::<i32>(state, tensor, &flat, element_count),
         MLOperandDataType::Uint32 => write_pod_buffer::<u32>(state, tensor, &flat, element_count),
         MLOperandDataType::Int8 => write_pod_buffer::<i8>(state, tensor, &flat, element_count),
-        MLOperandDataType::Uint8 => write_pod_buffer::<u8>(state, tensor, &flat, element_count),
+        MLOperandDataType::Uint8 | MLOperandDataType::Float8e4m3 => {
+            write_pod_buffer::<u8>(state, tensor, &flat, element_count)
+        }
         MLOperandDataType::Int64 => write_pod_buffer::<i64>(state, tensor, &flat, element_count),
         MLOperandDataType::Uint64 => write_pod_buffer::<u64>(state, tensor, &flat, element_count),
         MLOperandDataType::Int4 | MLOperandDataType::Uint4 => unreachable!(),
@@ -296,7 +291,7 @@ fn numpy_array_from_bytes<'py>(
     shape_tuple: &Bound<'py, PyTuple>,
 ) -> PyResult<Bound<'py, PyAny>> {
     let py_bytes = PyBytes::new(py, bytes);
-    let array = numpy.call_method1("frombuffer", (py_bytes, dtype))?;
+    let array = numpy.call_method1("frombuffer", (py_bytes, numpy_dtype(py, dtype)?))?;
     array.call_method1("reshape", (shape_tuple,))
 }
 
@@ -333,6 +328,12 @@ fn read_ml_tensor_to_numpy<'py>(
         }
         DataType::Float16 => {
             read_typed_ml_tensor::<u16>(py, state, tensor, numpy, "float16", &shape_tuple)
+        }
+        DataType::Bfloat16 => {
+            read_typed_ml_tensor::<u16>(py, state, tensor, numpy, "bfloat16", &shape_tuple)
+        }
+        DataType::Float8e4m3 => {
+            read_typed_ml_tensor::<u8>(py, state, tensor, numpy, "float8e4m3", &shape_tuple)
         }
         DataType::Int32 => {
             read_typed_ml_tensor::<i32>(py, state, tensor, numpy, "int32", &shape_tuple)

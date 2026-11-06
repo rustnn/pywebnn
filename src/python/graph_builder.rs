@@ -6,9 +6,9 @@
 #![allow(clippy::useless_conversion)]
 #![allow(clippy::too_many_arguments)]
 
-use super::context_state::{data_type_to_ml_operand, map_rustnn_error, pack_numpy_to_4bit_bytes};
+use super::context_state::{map_rustnn_error, pack_numpy_to_4bit_bytes};
 use super::graph::PyMLGraph;
-use super::operand::{parse_data_type, PyMLOperand};
+use super::operand::{numpy_dtype, parse_data_type, PyMLOperand};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -183,7 +183,7 @@ impl PyMLGraphBuilder {
     fn input(&mut self, name: String, shape: Vec<u32>, data_type: &str) -> PyResult<PyMLOperand> {
         self.inner_mut()?;
         let descriptor = MLOperandDescriptor::new(
-            data_type_to_ml_operand(parse_data_type(data_type)?)?,
+            parse_data_type(data_type)?,
             shape.into_iter().map(u64::from).collect(),
         );
         let handle = self
@@ -237,7 +237,7 @@ impl PyMLGraphBuilder {
             DataType::Int4 | DataType::Uint4 => array,
             _ => array.call_method(
                 "astype",
-                (data_type_to_ml_operand(actual_dtype)?.as_str(),),
+                (numpy_dtype(py, actual_dtype.as_str())?,),
                 Some(&cast_options),
             )?,
         };
@@ -249,7 +249,7 @@ impl PyMLGraphBuilder {
         };
 
         let descriptor = MLOperandDescriptor::new(
-            data_type_to_ml_operand(actual_dtype)?,
+            actual_dtype,
             actual_shape.into_iter().map(u64::from).collect(),
         );
         let handle = self
@@ -717,7 +717,7 @@ impl PyMLGraphBuilder {
             layout: parse_pool_layout(layout)?.to_string(),
             ..Default::default()
         };
-        self.call(|builder| builder.global_average_pool_with_options(input, options))
+        self.call(|builder| builder.average_pool2d_with_options(input, options))
     }
 
     /// Global Max Pooling operation
@@ -742,7 +742,7 @@ impl PyMLGraphBuilder {
             layout: parse_pool_layout(layout)?.to_string(),
             ..Default::default()
         };
-        self.call(|builder| builder.global_max_pool_with_options(input, options))
+        self.call(|builder| builder.max_pool2d_with_options(input, options))
     }
 
     // Normalization operations
@@ -2315,7 +2315,7 @@ impl PyMLGraphBuilder {
     ) -> PyResult<PyMLOperand> {
         self.inner_mut()?;
         let input = self.handle(input)?;
-        let data_type = data_type_to_ml_operand(parse_data_type(data_type)?)?;
+        let data_type = parse_data_type(data_type)?;
         self.call(|builder| {
             builder.cast_with_options(
                 input,

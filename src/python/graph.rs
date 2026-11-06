@@ -32,10 +32,7 @@ fn descriptors<'py>(
             }
         }
         value.set_item("shape", shape)?;
-        value.set_item(
-            "data_type",
-            super::context_state::data_type_to_ml_operand(descriptor.data_type)?.as_str(),
-        )?;
+        value.set_item("data_type", descriptor.data_type.as_str())?;
         result.set_item(name, value)?;
     }
     Ok(result)

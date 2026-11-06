@@ -38,3 +38,6 @@ requires_execution_backend = pytest.mark.skipif(
 requires_coreml_backend = pytest.mark.skipif(
     not COREML_BACKEND_AVAILABLE, reason="No working CoreML backend"
 )
+fails_because_of_missing_invalid_rustnn_validation = pytest.mark.xfail(
+    reason="Failing test due to missing or invalid RustNN validation. Please also revalidate the tests!"
+)

@@ -3,7 +3,10 @@
 import numpy as np
 import pytest
 from execution import GraphExecution
-from runtime_support import requires_execution_backend
+from runtime_support import (
+    fails_because_of_missing_invalid_rustnn_validation,
+    requires_execution_backend,
+)
 
 xfail = pytest.mark.xfail
 
@@ -139,7 +142,7 @@ def test_reshape_operation(builder):
     assert builder.operand_data_type(reshaped) == "float32"
 
 
-@xfail(reason="Reson RustNN doesn't do validation of this yet")
+@fails_because_of_missing_invalid_rustnn_validation
 def test_softmax_invalid_axis(builder):
     """Test softmax rejects axes outside the input rank."""
     x = builder.input("x", [2, 3], "float32")
@@ -1338,6 +1341,7 @@ def test_global_max_pool_various_sizes(builder):
     ], f"Expected [4, 256, 1, 1], got {builder.operand_shape(output2)}"
 
 
+@fails_because_of_missing_invalid_rustnn_validation
 def test_global_pool_invalid_input_shape(builder):
     """Test that global pooling rejects non-4D input"""
     input_op = builder.input("input", [64, 28, 28], "float32")  # Only 3D
@@ -1494,7 +1498,7 @@ def test_reshape_valid(builder):
     ], f"Expected [6], got {builder.operand_shape(y)}"
 
 
-@xfail(reason="Reson RustNN doesn't do validation of this yet")
+@fails_because_of_missing_invalid_rustnn_validation
 def test_reshape_invalid(builder):
     """Test that invalid reshape raises error"""
     x = builder.input("x", [2, 3], "float32")
@@ -1983,6 +1987,7 @@ def test_quantize_linear_uint4_per_axis(context):
     assert graph
 
 
+@fails_because_of_missing_invalid_rustnn_validation
 def test_dequantize_linear_int4_blockwise(context):
     """DequantizeLinear blockwise int4"""
     builder = context.create_graph_builder()
@@ -1996,6 +2001,7 @@ def test_dequantize_linear_int4_blockwise(context):
 
 
 @requires_execution_backend
+@fails_because_of_missing_invalid_rustnn_validation
 def test_dequantize_linear_int4_blockwise_dispatch(context):
     """DequantizeLinear with int4 input via explicit tensors"""
     builder = context.create_graph_builder()
@@ -2031,6 +2037,7 @@ def test_uint4_tensor_read_write_roundtrip(context):
     assert read_back.dtype == np.uint8
 
 
+@fails_because_of_missing_invalid_rustnn_validation
 def test_int4_constant_packed(context):
     """int4 constants are nibble-packed and usable in compiled graphs"""
     builder = context.create_graph_builder()
@@ -3342,7 +3349,7 @@ def test_clamp_shape_inference(context):
     assert builder.operand_shape(output) == [1, 224, 224, 3]
 
 
-@xfail(reason="RustNN doesn't validate this yet")
+@fails_because_of_missing_invalid_rustnn_validation
 def test_clamp_invalid_range(context):
     """Test clamp with invalid min/max range"""
     builder = context.create_graph_builder()
