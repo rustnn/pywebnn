@@ -1,7 +1,7 @@
 """Types for the direct RustNN bindings. No Python graph representation is exposed."""
 
 from os import PathLike
-from typing import Any, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 import numpy as np
 import numpy.typing as npt
@@ -725,5 +725,7 @@ class OrtAlreadyInitialized(RuntimeError):
 
 def init_global_ort_env(
     execution_provider_libraries: list[tuple[str, str | PathLike[str]]],
+    *,
+    log_level: Literal["verbose", "info", "warning", "error", "fatal"] | None = None,
 ) -> None:
-    """Install named EP libraries before creating any contexts."""
+    """Install EP libraries; an explicit log_level enables native stdout logging."""
