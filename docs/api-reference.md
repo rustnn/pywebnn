@@ -60,3 +60,14 @@ Allocate tensors explicitly from the native I/O descriptors and reuse them acros
 dispatches. Download Hub files with the independent `webnn.Hub` helper or
 `huggingface_hub`. `Hub` provides `download_model`, `list_cached_models`, and
 `clear_cache`; it performs no graph parsing or validation.
+
+## ONNX Runtime initialization
+
+`init_global_ort_env(execution_provider_libraries, *, log_level=None)` installs
+an ORT environment before device discovery or context creation. Libraries are
+`(registration_name, library_path)` pairs. The optional severity threshold accepts
+`"verbose"`, `"info"`, `"warning"`, `"error"`, and `"fatal"` (case-insensitive),
+and applies before plugin registration. `None` retains ORT's logging defaults.
+Invalid levels raise `ValueError` without initializing the runtime. Library errors
+raise `RuntimeError`; replacing an installed environment raises
+`OrtAlreadyInitialized`.

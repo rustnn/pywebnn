@@ -3432,10 +3432,12 @@ version = "0.5.13"
 dependencies = [
  "bytemuck",
  "log",
+ "ort",
  "pretty_env_logger",
  "pyo3",
  "rustnn",
  "serde_json",
+ "tracing",
 ]
 
 [[package]]
@@ -3753,7 +3755,6 @@ dependencies = [
 [[package]]
 name = "rustnn"
 version = "0.6.0"
-source = "git+https://github.com/rustnn/rustnn?branch=main#e1845a39aae73fb4c23a7c2a6e29f03135bd6324"
 dependencies = [
  "base64 0.23.1",
  "block",

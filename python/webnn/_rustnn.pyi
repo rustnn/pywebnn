@@ -1,7 +1,7 @@
 """Types for the direct RustNN bindings. No Python graph representation is exposed."""
 
 from os import PathLike
-from typing import Any, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 import numpy as np
 import numpy.typing as npt
@@ -719,3 +719,13 @@ class MLTensor:
     def writable(self) -> bool: ...
     def destroy(self) -> None:
         """Raises NotImplementedError while unimplemented in RustNN."""
+
+class OrtAlreadyInitialized(RuntimeError):
+    """The process already has a rustnn ONNX Runtime environment."""
+
+def init_global_ort_env(
+    execution_provider_libraries: list[tuple[str, str | PathLike[str]]],
+    *,
+    log_level: Literal["verbose", "info", "warning", "error", "fatal"] | None = None,
+) -> None:
+    """Install EP libraries; an explicit log_level enables native stdout logging."""
