@@ -13,6 +13,12 @@ pip install maturin numpy pytest
 maturin develop
 ```
 
+Install every optional dependency group (including tests and both CUDA variants
+of the ORT plugin) with `pip install 'pywebnn[all]'`, or `pip install -e '.[all]'`
+from a checkout. For a specific CUDA runtime, select `ort-trtx` (CUDA 13) or
+`ort-trtx-cu12` (CUDA 12) individually. Python extras install dependencies;
+Rust backend features still need to be enabled when building.
+
 Select a compiled RustNN backend with `backend="onnx"`, `"coreml"`, `"trtx"`,
 `"litert"`, or `"cann"`; `"auto"` uses RustNN's selection. Extra runtime features
 must be enabled when building, for example `maturin develop --features trtx-runtime`.
@@ -87,12 +93,18 @@ Register EP libraries before creating a context or discovering devices:
 import webnn
 import onnxruntime_ep_nv_tensorrt_rtx as trt_ep
 
-webnn.init_global_ort_env([(trt_ep.get_ep_name(), trt_ep.get_library_path())])
+webnn.init_global_ort_env(
+    [(trt_ep.get_ep_name(), trt_ep.get_library_path())], log_level="warning"
+)
 context = webnn.ML().create_context(backend="onnx", accelerated=True)
 ```
 
 Pass a list of `(registration_name, library_path)` pairs to load other EP plugins.
-Paths accept strings or `pathlib.Path`. Library loading errors raise `RuntimeError`;
+Paths accept strings or `pathlib.Path`. The keyword-only `log_level` accepts
+`"verbose"`, `"info"`, `"warning"`, `"error"`, or `"fatal"` (case-insensitive).
+It sets the ORT environment's severity threshold before plugin registration;
+`None` (the default) preserves ORT's logging configuration. Invalid levels raise
+`ValueError` before runtime initialization. Library loading errors raise `RuntimeError`;
 a second successful initialization or initialization after context creation raises
 `webnn.OrtAlreadyInitialized`. Registration must succeed for every library before
 rustnn receives the environment. If registration fails, retry initialization before
