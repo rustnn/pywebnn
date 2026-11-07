@@ -15,7 +15,7 @@ doctest = false
 
 [features]
 default = ["onnx-runtime", "dynamic-inputs"]
-onnx-runtime = ["rustnn/onnx-runtime"]
+onnx-runtime = ["rustnn/onnx-runtime", "dep:ort"]
 coreml-runtime = ["rustnn/coreml-runtime"]
 trtx-runtime = ["rustnn/trtx-runtime"]
 litert-runtime = ["rustnn/litert-runtime"]
@@ -24,6 +24,7 @@ cann-runtime-mock = ["rustnn/cann-runtime-mock"]
 dynamic-inputs = ["rustnn/dynamic-inputs"]
 
 [dependencies]
+ort = { version = "=2.0.0-rc.15", optional = true, default-features = false, features = ["load-dynamic", "api-29"] }
 pyo3 = { version = "0.28", features = ["extension-module"] }
 bytemuck = "1.14"
 rustnn = { git = "https://github.com/rustnn/rustnn", branch = "main" }

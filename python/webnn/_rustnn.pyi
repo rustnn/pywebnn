@@ -719,3 +719,11 @@ class MLTensor:
     def writable(self) -> bool: ...
     def destroy(self) -> None:
         """Raises NotImplementedError while unimplemented in RustNN."""
+
+class OrtAlreadyInitialized(RuntimeError):
+    """The process already has a rustnn ONNX Runtime environment."""
+
+def init_global_ort_env(
+    execution_provider_libraries: list[tuple[str, str | PathLike[str]]],
+) -> None:
+    """Install named EP libraries before creating any contexts."""
