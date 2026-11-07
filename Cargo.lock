@@ -3432,6 +3432,7 @@ version = "0.5.13"
 dependencies = [
  "bytemuck",
  "log",
+ "ort",
  "pretty_env_logger",
  "pyo3",
  "rustnn",
