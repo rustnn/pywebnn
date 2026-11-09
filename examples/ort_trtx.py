@@ -33,7 +33,8 @@ def main() -> None:
     print(f"EP library path: {ep.get_library_path()}")
     # Register the ORT plugin before creating either context.
     webnn.init_global_ort_env(
-        [(ep.get_ep_name(), ep.get_library_path())], log_level="info"
+        [(ep.get_ep_name(), ep.get_library_path())],
+        log_level="info",  # set RUST_LOG=info (or debug, trace) to see the actual logs
     )
     values = np.arange(-3, 3, dtype=np.float32).reshape(2, 3)
     expected = np.maximum(values * 2, 0)

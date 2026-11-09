@@ -15,7 +15,7 @@ doctest = false
 
 [features]
 default = ["onnx-runtime", "dynamic-inputs"]
-onnx-runtime = ["rustnn/onnx-runtime", "dep:ort", "dep:tracing"]
+onnx-runtime = ["rustnn/onnx-runtime", "dep:ort"]
 coreml-runtime = ["rustnn/coreml-runtime"]
 trtx-runtime = ["rustnn/trtx-runtime"]
 litert-runtime = ["rustnn/litert-runtime"]
@@ -24,14 +24,14 @@ cann-runtime-mock = ["rustnn/cann-runtime-mock"]
 dynamic-inputs = ["rustnn/dynamic-inputs"]
 
 [dependencies]
-tracing = { version = "0.1", optional = true, default-features = false, features = ["std"] }
-ort = { version = "=2.0.0-rc.15", optional = true, default-features = false, features = ["load-dynamic", "api-29"] }
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+ort = { version = "=2.0.0-rc.15", optional = true, default-features = false, features = ["load-dynamic", "api-29", "tracing"] }
 pyo3 = { version = "0.28", features = ["extension-module"] }
 bytemuck = "1.14"
 rustnn = { git = "https://github.com/rustnn/rustnn", branch = "main" }
 serde_json = "1.0"
-pretty_env_logger = "0.5"
 log = "0.4"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 # Make this crate independent from the parent workspace
 [workspace]

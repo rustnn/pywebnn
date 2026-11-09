@@ -94,6 +94,7 @@ import webnn
 import onnxruntime_ep_nv_tensorrt_rtx as trt_ep
 
 webnn.init_global_ort_env(
+    # This sets the ORT log level, set RUST_LOG=info as an environment variable (or debug, trace) to see ORT logs together with RustNN logs
     [(trt_ep.get_ep_name(), trt_ep.get_library_path())], log_level="warning"
 )
 context = webnn.ML().create_context(backend="onnx", accelerated=True)
@@ -102,6 +103,7 @@ context = webnn.ML().create_context(backend="onnx", accelerated=True)
 Pass a list of `(registration_name, library_path)` pairs to load other EP plugins.
 Paths accept strings or `pathlib.Path`. The keyword-only `log_level` accepts
 `"verbose"`, `"info"`, `"warning"`, `"error"`, or `"fatal"` (case-insensitive).
+Logging will only be visible if RUST_LOG is set together with RustNN logs.
 It sets the ORT environment's severity threshold before plugin registration;
 `None` (the default) preserves ORT's logging configuration. Invalid levels raise
 `ValueError` before runtime initialization. Library loading errors raise `RuntimeError`;

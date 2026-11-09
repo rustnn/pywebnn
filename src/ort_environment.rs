@@ -2,7 +2,6 @@
 use ort::logging::LogLevel;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
@@ -17,40 +16,6 @@ struct PendingEnvironment {
     stdout_level: Arc<AtomicU8>,
 }
 
-fn ort_logger(stdout_level: Arc<AtomicU8>) -> ort::logging::LoggerFunction {
-    Arc::new(move |level, category, id, code_location, message| {
-        let minimum = stdout_level.load(Ordering::Relaxed);
-        if minimum != u8::MAX {
-            if (level as u8) >= minimum {
-                // ORT may log from worker threads. Avoid the Python GIL and never
-                // panic across its FFI callback if stdout has been closed.
-                let mut stdout = std::io::stdout().lock();
-                let _ = writeln!(stdout, "[ORT {level:?}] [{category}] [{id}] {message}");
-                let _ = stdout.flush();
-            }
-        } else {
-            // Preserve ort's default tracing route when Python did not opt in.
-            match level {
-                LogLevel::Verbose => {
-                    tracing::trace!(target: "ort::logging", category, id, code_location, "{message}")
-                }
-                LogLevel::Info => {
-                    tracing::info!(target: "ort::logging", category, id, code_location, "{message}")
-                }
-                LogLevel::Warning => {
-                    tracing::warn!(target: "ort::logging", category, id, code_location, "{message}")
-                }
-                LogLevel::Error => {
-                    tracing::error!(target: "ort::logging", category, id, code_location, "{message}")
-                }
-                LogLevel::Fatal => {
-                    tracing::error!(target: "ort::logging", category, id, code_location, "(FATAL): {message}")
-                }
-            }
-        }
-    })
-}
-
 pyo3::create_exception!(_rustnn, OrtAlreadyInitialized, PyRuntimeError);
 
 /// Initialize ORT with (registration name, library path) EP libraries.
@@ -58,8 +23,8 @@ pyo3::create_exception!(_rustnn, OrtAlreadyInitialized, PyRuntimeError);
 /// Call before creating contexts. Raises OrtAlreadyInitialized if an environment
 /// is already installed, or RuntimeError if loading the runtime or an EP fails.
 /// `log_level` accepts verbose, info, warning, error, or fatal (case-insensitive).
-/// Explicit levels print matching ORT records to native stdout, including during
-/// environment construction. None preserves the default tracing route. Invalid
+/// Explicit levels print matching ORT records to stdout when RUST_LOG is set to (error,warn,info,debug),
+/// including during environment construction. None preserves the default tracing route. Invalid
 /// levels raise ValueError before loading ORT.
 #[pyfunction]
 #[pyo3(signature = (execution_provider_libraries, *, log_level=None))]
@@ -106,7 +71,6 @@ pub fn init_global_ort_env(
         let environment = ort::init_from(path)
             .map_err(|e| ort::Error::new(e.to_string()))?
             .with_name("pywebnn")
-            .with_logger(ort_logger(stdout_level.clone()))
             .with_execution_providers([ort::ep::CPU::default().build()])
             .with_telemetry(false)
             .build()?;
@@ -124,7 +88,7 @@ pub fn init_global_ort_env(
         Ordering::Relaxed,
     );
     let environment = pending.environment;
-    environment.set_log_level(log_level.unwrap_or(LogLevel::Verbose));
+    environment.set_log_level(log_level.unwrap_or(LogLevel::Info));
     for (name, path) in execution_provider_libraries {
         environment
             .register_ep_library(name, path)
