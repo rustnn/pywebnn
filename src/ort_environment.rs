@@ -32,6 +32,7 @@ pub fn init_global_ort_env(
     execution_provider_libraries: Vec<(String, PathBuf)>,
     log_level: Option<&str>,
 ) -> PyResult<()> {
+    crate::logging::init_rust_logging_if_requested();
     let log_level = log_level
         .map(|level| match level.to_ascii_lowercase().as_str() {
             "verbose" => Ok(LogLevel::Verbose),

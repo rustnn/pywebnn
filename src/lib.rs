@@ -5,6 +5,7 @@
 
 use pyo3::prelude::*;
 
+mod logging;
 mod python;
 
 #[cfg(feature = "onnx-runtime")]

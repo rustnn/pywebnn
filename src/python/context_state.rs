@@ -11,10 +11,8 @@ use rustnn::mlcontext::{
 };
 use rustnn::operator_enums::MLOperandDataType;
 use std::collections::BTreeMap;
-use std::sync::Once;
-use tracing::level_filters::LevelFilter;
-use tracing_subscriber::prelude::*;
-use tracing_subscriber::Layer;
+
+use crate::logging::init_rust_logging_if_requested;
 
 use super::graph::PyMLGraph;
 use super::operand::{numpy_dtype, parse_data_type};
@@ -23,32 +21,6 @@ use super::tensor::RustnnTensor;
 /// Runtime state owned by a Python context. Graphs own their compiled resources.
 pub(crate) struct ContextState {
     pub ml_context: MLContext<'static>,
-}
-
-/// Enable RustNN's existing log output only when the embedding application
-/// explicitly configures `RUST_LOG`. A library must not install a global logger
-/// during normal imports because Python applications may own that logger.
-fn init_rust_logging_if_requested() {
-    static LOGGER_INIT: Once = Once::new();
-    if std::env::var_os("RUST_LOG").is_some() {
-        LOGGER_INIT.call_once(|| {
-            let env_filter =
-                tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-                    tracing_subscriber::EnvFilter::builder()
-                        .with_default_directive(LevelFilter::WARN.into())
-                        .parse("")
-                        .unwrap()
-                });
-            let fmt = tracing_subscriber::fmt::layer()
-                .compact()
-                .without_time()
-                .with_filter(env_filter);
-            tracing_subscriber::registry()
-                //.with(nvtx::tracing::NvtxLayer::default()) // if using https://github.com/NVIDIA/NVTX/tree/dev/rust
-                .with(fmt)
-                .init();
-        });
-    }
 }
 
 /// Prefer the compatible optional Python runtime package over library discovery.
