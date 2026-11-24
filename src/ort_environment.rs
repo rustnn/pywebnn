@@ -50,7 +50,7 @@ pub fn init_global_ort_env(
             "the global ONNX Runtime environment is already initialized",
         ));
     }
-    let result = (|| -> ort::Result<_> {
+    let result = (|| -> PyResult<_> {
         if let Some(environment) = state.as_ref() {
             return Ok(environment.clone());
         }
@@ -69,11 +69,12 @@ pub fn init_global_ort_env(
             log_level.map_or(u8::MAX, |level| level as u8),
         ));
         let environment = ort::init_from(path)
-            .map_err(|e| ort::Error::new(e.to_string()))?
+            .map_err(|e| PyValueError::new_err(e.to_string()))?
             .with_name("pywebnn")
             .with_execution_providers([ort::ep::CPU::default().build()])
             .with_telemetry(false)
-            .build()?;
+            .build()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let pending = PendingEnvironment {
             environment: Arc::new(environment),
             stdout_level,
