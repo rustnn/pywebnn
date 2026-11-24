@@ -41,7 +41,6 @@ fn init_rust_logging_if_requested() {
                 });
             let fmt = tracing_subscriber::fmt::layer()
                 .compact()
-                .with_writer(std::io::stderr)
                 .without_time()
                 .with_filter(env_filter);
             tracing_subscriber::registry()
