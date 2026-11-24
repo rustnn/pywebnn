@@ -90,7 +90,9 @@ pub fn init_global_ort_env(
         Ordering::Relaxed,
     );
     let environment = pending.environment;
-    environment.set_log_level(log_level.unwrap_or(LogLevel::Info));
+    if let Some(log_level) = log_level {
+        environment.set_log_level(log_level);
+    }
     for (name, path) in execution_provider_libraries {
         environment
             .register_ep_library(name, path)
