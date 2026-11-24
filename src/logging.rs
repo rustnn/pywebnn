@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Once;
+use std::{io::IsTerminal, sync::Once};
 
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -21,7 +21,11 @@ pub(crate) fn init_rust_logging_if_requested() {
                         .unwrap()
                 });
             let fmt = {
-                let this = tracing_subscriber::fmt::layer().compact().without_time();
+                let this = tracing_subscriber::fmt::layer()
+                    .compact()
+                    .without_time()
+                    .with_writer(std::io::stderr)
+                    .with_ansi(std::io::stderr().is_terminal());
                 tracing_subscriber::filter::Filtered::new(this, env_filter)
             };
             tracing_subscriber::registry()
