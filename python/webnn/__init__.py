@@ -114,3 +114,10 @@ __all__ = [
     "MLTensor",
 ]
 __version__ = "0.5.13"
+
+try:
+    from ._rustnn import OrtAlreadyInitialized, init_global_ort_env
+except ImportError:
+    pass  # The native extension was built without the onnx-runtime feature.
+else:
+    __all__ += ["OrtAlreadyInitialized", "init_global_ort_env"]

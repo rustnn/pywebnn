@@ -37,6 +37,9 @@ classifiers = [
 dependencies = ["numpy>=1.20.0", "onnxruntime>=1.29.0", "ml_dtypes>=0.5.0"]
 
 [project.optional-dependencies]
+all = ["pywebnn[ort-trtx,trtx,test]"]
+ort-trtx = ["onnxruntime-ep-nv-tensorrt-rtx"]
+ort-trtx-cu12 = ["onnxruntime-ep-nv-tensorrt-rtx-cu12"]
 trtx = [
     "tensorrt_rtx_cu13_libs==1.7.1.116",
 ]
